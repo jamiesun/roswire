@@ -1,5 +1,7 @@
 # roswire
 
+![roswire](roswire.png)
+
 [![Language: Rust](https://img.shields.io/badge/language-Rust-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
