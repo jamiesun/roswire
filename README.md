@@ -24,20 +24,22 @@ Unlike traditional CLIs designed for human interaction, `roswire` does not emit 
 
 ## Installation
 
-Prebuilt binaries are published through GitHub Releases, with a `checksums.txt` file attached to each release. Verify the SHA256 checksum before extracting or copying the binary into `PATH`.
+Prebuilt binaries are published through GitHub Releases, with a `checksums.txt` file attached to each release.
 
-Linux quick example:
+Linux quick install:
 
 ```bash
-curl -L https://github.com/AS153929/roswire/releases/latest/download/roswire-linux-amd64.tar.gz -o roswire-linux-amd64.tar.gz
-curl -L https://github.com/AS153929/roswire/releases/latest/download/checksums.txt -o checksums.txt
-sha256sum -c checksums.txt --ignore-missing
-tar -xzf roswire-linux-amd64.tar.gz
-sudo install -m 0755 roswire /usr/local/bin/roswire
+curl -fsSL https://raw.githubusercontent.com/AS153929/roswire/main/scripts/install.sh | sh
+```
+
+The installer detects Linux x86_64 / arm64, downloads the matching latest release artifact, verifies `checksums.txt`, and installs `roswire` to `/usr/local/bin`. To install a pinned version or a user-local path:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AS153929/roswire/main/scripts/install.sh | ROSWIRE_VERSION=v0.0.3 ROSWIRE_INSTALL_DIR="$HOME/.local/bin" sh
 roswire doctor --json
 ```
 
-For complete installation steps, Windows PowerShell checksum verification, source builds, and uninstall instructions, see [`docs/installation.md`](docs/installation.md). Maintainer release procedures are documented in [`docs/release.md`](docs/release.md).
+For manual installation steps, Windows PowerShell checksum verification, source builds, and uninstall instructions, see [`docs/installation.md`](docs/installation.md). Maintainer release procedures are documented in [`docs/release.md`](docs/release.md).
 
 ## Quick start
 

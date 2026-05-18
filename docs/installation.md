@@ -5,6 +5,32 @@
 
 本文说明如何从 GitHub Release 安装 `roswire`，如何校验下载产物，以及如何确认二进制可以独立运行。
 
+## 快速安装脚本
+
+Linux 用户可以使用一行命令从 latest GitHub Release 安装：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AS153929/roswire/main/scripts/install.sh | sh
+```
+
+脚本会自动识别 Linux x86_64 / arm64，下载对应 release 产物和 `checksums.txt`，校验 SHA256，然后安装到 `/usr/local/bin/roswire`。如果当前用户无写入权限，脚本会尝试通过 `sudo` 执行安装。
+
+可通过环境变量覆盖默认行为：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AS153929/roswire/main/scripts/install.sh | ROSWIRE_VERSION=v0.0.3 sh
+curl -fsSL https://raw.githubusercontent.com/AS153929/roswire/main/scripts/install.sh | ROSWIRE_INSTALL_DIR="$HOME/.local/bin" sh
+```
+
+| 变量 | 说明 |
+| --- | --- |
+| `ROSWIRE_VERSION` | 指定 release tag，例如 `v0.0.3`；默认使用 latest |
+| `ROSWIRE_INSTALL_DIR` | 指定安装目录；默认 `/usr/local/bin` |
+| `ROSWIRE_REPO` | 指定 GitHub 仓库；默认 `AS153929/roswire` |
+| `ROSWIRE_VERIFY=0` | 跳过 SHA256 校验；不推荐 |
+
+macOS 预编译产物暂不发布，因此快速安装脚本目前不支持 macOS；请使用“从源码安装”。
+
 ## 选择平台产物
 
 Release 产物命名约定：

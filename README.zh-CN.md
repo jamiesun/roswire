@@ -24,20 +24,22 @@
 
 ## 安装
 
-预编译二进制由 GitHub Releases 提供，并随 release 附带 `checksums.txt`。安装前应先校验 SHA256，再解压或复制到 `PATH`。
+预编译二进制由 GitHub Releases 提供，并随 release 附带 `checksums.txt`。
 
-Linux 快速示例：
+Linux 快速安装：
 
 ```bash
-curl -L https://github.com/AS153929/roswire/releases/latest/download/roswire-linux-amd64.tar.gz -o roswire-linux-amd64.tar.gz
-curl -L https://github.com/AS153929/roswire/releases/latest/download/checksums.txt -o checksums.txt
-sha256sum -c checksums.txt --ignore-missing
-tar -xzf roswire-linux-amd64.tar.gz
-sudo install -m 0755 roswire /usr/local/bin/roswire
+curl -fsSL https://raw.githubusercontent.com/AS153929/roswire/main/scripts/install.sh | sh
+```
+
+安装脚本会识别 Linux x86_64 / arm64，下载匹配的 latest release 产物，校验 `checksums.txt`，并把 `roswire` 安装到 `/usr/local/bin`。如需固定版本或安装到用户目录：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AS153929/roswire/main/scripts/install.sh | ROSWIRE_VERSION=v0.0.3 ROSWIRE_INSTALL_DIR="$HOME/.local/bin" sh
 roswire doctor --json
 ```
 
-完整安装、Windows PowerShell 校验、源码构建和卸载步骤见 [`docs/installation.md`](docs/installation.md)。维护者发布流程见 [`docs/release.md`](docs/release.md)。
+手动安装、Windows PowerShell 校验、源码构建和卸载步骤见 [`docs/installation.md`](docs/installation.md)。维护者发布流程见 [`docs/release.md`](docs/release.md)。
 
 ## 快速开始
 
