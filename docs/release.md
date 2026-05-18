@@ -1,9 +1,9 @@
 # RosWire 发布流程
 
-> 最后更新：2026-05-18
+> 最后更新：2026-05-19
 > 关联 issue：[#61](https://github.com/AS153929/roswire/issues/61)
 
-本文面向维护者，说明如何准备、验证和发布 GitHub Release。
+本文面向维护者，说明如何准备、验证并发布 GitHub Release 与 crates.io crate。
 
 ## Release workflow
 
@@ -35,21 +35,64 @@ roswire doctor --json
 - [ ] `cargo fmt --check`
 - [ ] `cargo clippy --workspace --all-targets --all-features -- -D warnings`
 - [ ] `cargo test --workspace --all-features`
+- [ ] `make cargo-publish-dry-run`
 - [ ] `cargo llvm-cov --workspace --all-features --summary-only --fail-under-lines 85`
 - [ ] `ROSWIRE_KEYCHAIN_SMOKE=documented-fallback cargo test --test keychain_smoke documented_fallbacks_cover_linux_and_windows -- --ignored --exact`
 - [ ] macOS native keychain smoke 已通过本地 runner 或 `workflow_dispatch` 的 `keychain-native-macos` job。
 - [ ] README 示例与 [`installation.md`](installation.md) 的命令仍与当前实现一致。
 - [ ] 若声明 production-stable，则 [`production-readiness.md`](production-readiness.md) 的 P0 blocker 已关闭。
 
+## crates.io 发布
+
+首次发布前需要：
+
+1. 在 crates.io 登录 GitHub 账号，创建 API token。
+1. 在本机执行 `cargo login`，按提示粘贴 token。
+1. 在 GitHub repository secrets 中创建 `CARGO_REGISTRY_TOKEN`，值为 crates.io API token。
+1. 可选：如需 crates.io 发布前人工审批，可先在 GitHub Settings 创建 environment，再给 `publish-crate` job 增加 `environment` 字段。
+1. 确认 `Cargo.toml` 的 `version`、`license`、`description`、`homepage`、`repository`、`readme`、`keywords` 和 `categories` 与本次发布一致。
+1. 确认 Git tag 与 `Cargo.toml` 的 `package.version` 一致，例如 `version = "0.1.0"` 对应 tag `v0.1.0`。
+1. 确认 crate 名称仍可用：
+
+```bash
+cargo search roswire
+```
+
+发布前必须先做 dry-run：
+
+```bash
+make cargo-publish-dry-run
+```
+
+dry-run 通过后发布到 crates.io：
+
+```bash
+make cargo-publish
+```
+
+发布后验证安装：
+
+```bash
+cargo install roswire --locked
+roswire doctor --json
+```
+
+Release workflow 在 tag 触发时会自动执行同样的 crates.io 发布步骤：
+
+1. 等待 Linux / Windows artifact 构建通过。
+1. 校验 `GITHUB_REF_NAME` 与 `Cargo.toml` 版本一致。
+1. 执行 `cargo publish --dry-run --locked`。
+1. 使用 `secrets.CARGO_REGISTRY_TOKEN` 执行 `cargo publish --locked`。
+1. crates.io 发布成功后再发布 GitHub Release。
+
 ## 创建发布
 
 1. 更新版本号和 release note 草稿。
 1. 确保 `main` 与 `origin/main` 同步。
-1. 创建并推送 tag：
+1. 创建并推送与 `Cargo.toml` 版本一致的 tag：
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+make tag
 ```
 
 1. 等待 Release workflow 完成。

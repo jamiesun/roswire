@@ -7,24 +7,42 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}🏷️  开始获取最新标签...${NC}"
+echo -e "${BLUE}🏷️  开始准备发布标签...${NC}"
+
+# 从 Cargo.toml 读取当前 crate 版本。crates.io 发布版本来自 Cargo.toml，
+# 因此 Git tag 必须保持 v<package.version>。
+cargo_version=$(awk '
+  /^\[package\]/ { in_package = 1; next }
+  /^\[/ && in_package { exit }
+  in_package && $1 == "version" {
+    gsub(/"/, "", $3)
+    print $3
+    exit
+  }
+' Cargo.toml)
+
+if [ -z "$cargo_version" ]; then
+    echo -e "${RED}❌ 无法从 Cargo.toml 读取 package.version${NC}"
+    exit 1
+fi
+
+new_version="$cargo_version"
+new_tag="v$new_version"
+
+echo -e "${GREEN}🎯 Cargo.toml version: ${new_version}${NC}"
+echo -e "${GREEN}🎯 Release tag: ${new_tag}${NC}"
 
 # 获取最新标签
 git fetch --tags
 
 # 如果没有标签，返回 v0.0.0 作为兜底
-latest_tag=$(git describe --tags `git rev-list --tags --max-count=1` 2>/dev/null || echo "v0.0.0")
+latest_tag=$(git describe --tags "$(git rev-list --tags --max-count=1)" 2>/dev/null || echo "v0.0.0")
 echo -e "${YELLOW}📋 Latest tag: ${latest_tag}${NC}"
 
-# 解析版本号
-version=${latest_tag#v}
-IFS='.' read -r -a parts <<<"$version"
-last_idx=$((${#parts[@]} - 1))
-parts[$last_idx]=$((${parts[$last_idx]} + 1))
-new_version=$(IFS='.'; echo "${parts[*]}")
-new_tag="v$new_version"
-
-echo -e "${GREEN}🎯 New tag: ${new_tag}${NC}"
+if git rev-parse -q --verify "refs/tags/${new_tag}" >/dev/null; then
+    echo -e "${RED}❌ 标签 ${new_tag} 已存在。请先更新 Cargo.toml package.version。${NC}"
+    exit 1
+fi
 
 # 生成提交记录清单
 echo -e "${BLUE}📝 生成提交记录清单...${NC}"

@@ -5,10 +5,22 @@ edition = "2021"
 rust-version = "1.75"
 license = "MIT"
 description = "JSON-first RouterOS CLI bridge for AI agents and automation."
+homepage = "https://github.com/AS153929/roswire"
 repository = "https://github.com/AS153929/roswire"
 readme = "README.md"
 keywords = ["routeros", "cli", "automation", "networking", "agent"]
 categories = ["command-line-utilities", "network-programming"]
+include = [
+    "/Cargo.lock",
+    "/Cargo.toml",
+    "/LICENSE",
+    "/README.md",
+    "/README.zh-CN.md",
+    "/docs/**",
+    "/roswire.png",
+    "/src/**",
+    "/tests/**",
+]
 
 [dependencies]
 base64 = "0.22"

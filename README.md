@@ -39,7 +39,13 @@ curl -fsSL https://raw.githubusercontent.com/AS153929/roswire/main/scripts/insta
 roswire doctor --json
 ```
 
-For manual installation steps, Windows PowerShell checksum verification, source builds, and uninstall instructions, see [`docs/installation.md`](docs/installation.md). Maintainer release procedures are documented in [`docs/release.md`](docs/release.md).
+If Rust is already installed, crates.io installation is also supported after the crate is published:
+
+```bash
+cargo install roswire --locked
+```
+
+For manual installation steps, Cargo installation notes, Windows PowerShell checksum verification, source builds, and uninstall instructions, see [`docs/installation.md`](docs/installation.md). Maintainer release procedures are documented in [`docs/release.md`](docs/release.md).
 
 ## Quick start
 

@@ -1,6 +1,6 @@
 # 安装 RosWire
 
-> 最后更新：2026-05-18
+> 最后更新：2026-05-19
 > 适用状态：MVP / Beta 候选。生产级稳定版仍需完成 RouterOS 真机/CHR 验收矩阵（#60）。
 
 本文说明如何从 GitHub Release 安装 `roswire`，如何校验下载产物，以及如何确认二进制可以独立运行。
@@ -30,6 +30,28 @@ curl -fsSL https://raw.githubusercontent.com/AS153929/roswire/main/scripts/insta
 | `ROSWIRE_VERIFY=0` | 跳过 SHA256 校验；不推荐 |
 
 macOS 预编译产物暂不发布，因此快速安装脚本目前不支持 macOS；请使用“从源码安装”。
+
+## Cargo 安装
+
+如果本机已经安装 Rust stable 工具链，可以在 crate 发布到 crates.io 后直接安装：
+
+```bash
+cargo install roswire --locked
+```
+
+从仓库源码安装当前分支：
+
+```bash
+cargo install --git https://github.com/AS153929/roswire --locked
+```
+
+在本地 checkout 中安装当前源码：
+
+```bash
+cargo install --path . --locked
+```
+
+Cargo 默认把二进制安装到 `~/.cargo/bin`。请确认该目录已经加入 `PATH`。
 
 ## 选择平台产物
 

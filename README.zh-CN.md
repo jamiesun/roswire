@@ -39,7 +39,13 @@ curl -fsSL https://raw.githubusercontent.com/AS153929/roswire/main/scripts/insta
 roswire doctor --json
 ```
 
-手动安装、Windows PowerShell 校验、源码构建和卸载步骤见 [`docs/installation.md`](docs/installation.md)。维护者发布流程见 [`docs/release.md`](docs/release.md)。
+如果本机已经安装 Rust，也可以在 crate 发布后通过 crates.io 安装：
+
+```bash
+cargo install roswire --locked
+```
+
+手动安装、Cargo 安装说明、Windows PowerShell 校验、源码构建和卸载步骤见 [`docs/installation.md`](docs/installation.md)。维护者发布流程见 [`docs/release.md`](docs/release.md)。
 
 ## 快速开始
 

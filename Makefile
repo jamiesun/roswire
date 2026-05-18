@@ -8,7 +8,7 @@ INSTALL ?= install
 BIN := roswire
 RELEASE_BIN := target/release/$(BIN)
 
-.PHONY: build install tag uninstall
+.PHONY: build install tag cargo-publish-dry-run cargo-publish uninstall
 
 build:
 	$(CARGO) build --release
@@ -20,6 +20,12 @@ install: build
 
 tag:
 	./scripts/tag.sh
+
+cargo-publish-dry-run:
+	$(CARGO) publish --dry-run --locked
+
+cargo-publish: cargo-publish-dry-run
+	$(CARGO) publish --locked
 
 uninstall:
 	rm -f "$(DESTDIR)$(BINDIR)/$(BIN)"
