@@ -13,12 +13,12 @@ Release 产物命名约定：
 | --- | --- |
 | Linux x86_64 | `roswire-linux-amd64.tar.gz` |
 | Linux arm64 | `roswire-linux-arm64.tar.gz` |
-| macOS Intel | `roswire-macos-amd64.tar.gz` |
-| macOS Apple Silicon | `roswire-macos-arm64.tar.gz` |
 | Windows x86_64 | `roswire-windows-amd64.zip` |
 | 校验和 | `checksums.txt` |
 
-## Linux / macOS 安装
+macOS 预编译产物暂不发布；macOS 用户请先按“从源码安装”构建本机二进制。
+
+## Linux 安装
 
 1. 下载对应平台的归档和校验和文件。
 
@@ -27,22 +27,11 @@ curl -L https://github.com/AS153929/roswire/releases/latest/download/roswire-lin
 curl -L https://github.com/AS153929/roswire/releases/latest/download/checksums.txt -o checksums.txt
 ```
 
-macOS 请把文件名换成 `roswire-macos-amd64.tar.gz` 或 `roswire-macos-arm64.tar.gz`。
-
 1. 校验 SHA256。
 
 ```bash
 sha256sum -c checksums.txt --ignore-missing
 ```
-
-macOS 如果没有 GNU `sha256sum`，可用：
-
-```bash
-shasum -a 256 roswire-macos-arm64.tar.gz
-cat checksums.txt
-```
-
-确认输出 hash 与 `checksums.txt` 中对应行一致。
 
 1. 解压并安装到 PATH。
 
@@ -50,12 +39,6 @@ cat checksums.txt
 tar -xzf roswire-linux-amd64.tar.gz
 chmod +x roswire
 sudo install -m 0755 roswire /usr/local/bin/roswire
-```
-
-macOS 如遇 Gatekeeper quarantine，可在确认校验和后执行：
-
-```bash
-xattr -d com.apple.quarantine /usr/local/bin/roswire 2>/dev/null || true
 ```
 
 1. 验证二进制可运行。
@@ -133,7 +116,7 @@ roswire file upload ./setup.rsc flash/setup.rsc --dry-run --ssh-host-key SHA256:
 
 ## 卸载
 
-Linux/macOS：
+Linux：
 
 ```bash
 sudo rm -f /usr/local/bin/roswire

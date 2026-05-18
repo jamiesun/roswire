@@ -26,7 +26,7 @@ Unlike traditional CLIs designed for human interaction, `roswire` does not emit 
 
 Prebuilt binaries are published through GitHub Releases, with a `checksums.txt` file attached to each release. Verify the SHA256 checksum before extracting or copying the binary into `PATH`.
 
-Linux/macOS quick example:
+Linux quick example:
 
 ```bash
 curl -L https://github.com/AS153929/roswire/releases/latest/download/roswire-linux-amd64.tar.gz -o roswire-linux-amd64.tar.gz

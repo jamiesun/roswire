@@ -26,7 +26,7 @@
 
 预编译二进制由 GitHub Releases 提供，并随 release 附带 `checksums.txt`。安装前应先校验 SHA256，再解压或复制到 `PATH`。
 
-Linux/macOS 快速示例：
+Linux 快速示例：
 
 ```bash
 curl -L https://github.com/AS153929/roswire/releases/latest/download/roswire-linux-amd64.tar.gz -o roswire-linux-amd64.tar.gz

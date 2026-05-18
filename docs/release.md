@@ -18,8 +18,6 @@
 | --- | --- | --- | --- |
 | `roswire-linux-amd64` | `ubuntu-latest` | `x86_64-unknown-linux-gnu` | `.tar.gz` |
 | `roswire-linux-arm64` | `ubuntu-latest` | `aarch64-unknown-linux-gnu` | `.tar.gz` |
-| `roswire-macos-amd64` | `macos-13` | `x86_64-apple-darwin` | `.tar.gz` |
-| `roswire-macos-arm64` | `macos-13` | `aarch64-apple-darwin` | `.tar.gz` |
 | `roswire-windows-amd64` | `windows-latest` | `x86_64-pc-windows-msvc` | `.zip` |
 
 每个平台构建后都会执行：
@@ -66,7 +64,7 @@ roswire doctor --json
 
 Release 必须包含 `checksums.txt`，覆盖所有 `.tar.gz` 与 `.zip` artifact。用户安装文档必须要求先校验 checksum，再解压或安装。
 
-Linux/macOS 示例：
+Linux 示例：
 
 ```bash
 sha256sum -c checksums.txt --ignore-missing
@@ -90,5 +88,6 @@ Select-String -Path .\checksums.txt -Pattern $hash
 ## 已知限制
 
 - Windows arm64 artifact 暂未提供。
+- macOS artifact 暂未提供；等待 macOS runner 策略或交叉编译方案确定后恢复。
 - Linux musl/static artifact 暂未提供；当前 Linux 产物使用 GNU target。
 - 真机/CHR 端到端矩阵仍由 #60 跟踪；未完成前只能声明 MVP/Beta。

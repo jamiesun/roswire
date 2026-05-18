@@ -305,7 +305,7 @@
 - [x] `cargo llvm-cov --workspace --all-features --summary-only --fail-under-lines 85`
 - [x] 覆盖率门槛 85%
 - [ ] RouterOS CHR / 真机集成测试流水线（#60；harness 已提供，等待真实目标/凭据）
-- [ ] macOS / Linux / Windows 发布 smoke test
+- [ ] Linux / Windows 发布 smoke test（macOS artifact 暂缓，等待 runner 或交叉编译方案）
 - [x] keychain 多平台 smoke test（#62）
 
 ## 文档与发布
