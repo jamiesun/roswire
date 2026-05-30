@@ -29,7 +29,7 @@ If command coverage is missing for a read-only RouterOS path, inspect the schema
 
 ```bash
 roswire --json schema command raw
-roswire --json --profile <profile> raw /ip/firewall/filter/print detail=yes
+roswire --json --profile <profile> raw /ip/firewall/filter/print detail
 ```
 
 ## Routing evidence

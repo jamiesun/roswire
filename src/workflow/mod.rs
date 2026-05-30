@@ -66,6 +66,7 @@ fn handle_script_put(name: &str, cli: &Cli) -> RosWireResult<WorkflowResult> {
             ("name".to_owned(), name.to_owned()),
             ("source".to_owned(), source),
         ]),
+        flags: Vec::new(),
     }))
 }
 

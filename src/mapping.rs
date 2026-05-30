@@ -85,12 +85,14 @@ impl CommandMapping {
 pub struct ProtocolRequest {
     pub mapping: CommandMapping,
     pub resolved_args: BTreeMap<String, String>,
+    pub flags: Vec<String>,
 }
 
 impl ProtocolRequest {
     pub fn classic_api_words(&self) -> Vec<String> {
-        let mut words = Vec::with_capacity(1 + self.resolved_args.len());
+        let mut words = Vec::with_capacity(1 + self.flags.len() + self.resolved_args.len());
         words.push(self.mapping.routeros_path.clone());
+        words.extend(self.flags.iter().map(|flag| format!("={flag}=")));
         words.extend(
             self.resolved_args
                 .iter()
@@ -103,10 +105,12 @@ impl ProtocolRequest {
 pub fn build_protocol_request(invocation: &ParsedInvocation) -> RosWireResult<ProtocolRequest> {
     let mapping = resolve_mapping(invocation)?;
     validate_required_args(invocation, &mapping)?;
+    validate_print_options(invocation, &mapping)?;
 
     Ok(ProtocolRequest {
         mapping,
         resolved_args: invocation.resolved_args.clone(),
+        flags: invocation.flags.clone(),
     })
 }
 
@@ -144,6 +148,48 @@ fn validate_required_args(
     Ok(())
 }
 
+fn validate_print_options(
+    invocation: &ParsedInvocation,
+    mapping: &CommandMapping,
+) -> RosWireResult<()> {
+    if mapping.action_kind != ActionKind::Print && !invocation.flags.is_empty() {
+        return Err(Box::new(
+            RosWireError::usage(
+                "bare RouterOS options are supported only for read-only print commands",
+            )
+            .with_context(mapping_error_context(invocation)),
+        ));
+    }
+
+    for flag in &invocation.flags {
+        if !is_readonly_print_flag(flag) {
+            return Err(Box::new(
+                RosWireError::usage(format!("unsupported read-only print option: {flag}"))
+                    .with_hint("supported bare print options are: detail, stats, count-only")
+                    .with_context(mapping_error_context(invocation)),
+            ));
+        }
+    }
+
+    if mapping.action_kind == ActionKind::Print {
+        for key in invocation.resolved_args.keys() {
+            if is_unsafe_print_option(key) {
+                return Err(Box::new(
+                    RosWireError::usage(format!(
+                        "print option `{key}` is not treated as read-only by roswire"
+                    ))
+                    .with_hint(
+                        "use detail, stats, count-only, or explicit key=value filters/proplist only",
+                    )
+                    .with_context(mapping_error_context(invocation)),
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub fn resolve_mapping(invocation: &ParsedInvocation) -> RosWireResult<CommandMapping> {
     let path = invocation
         .path
@@ -154,6 +200,14 @@ pub fn resolve_mapping(invocation: &ParsedInvocation) -> RosWireResult<CommandMa
 
     match (path.as_slice(), action) {
         (["raw"], raw_path) => raw_mapping(raw_path),
+        (["ip", "dhcp-client"], "print") => Ok(print_mapping(
+            &["ip", "dhcp-client"],
+            "/ip/dhcp-client/print",
+            Some(RestMapping {
+                method: RestMethod::Get,
+                path: "/rest/ip/dhcp-client".to_owned(),
+            }),
+        )),
         (["interface"], "print") => Ok(print_mapping(
             &["interface"],
             "/interface/print",
@@ -241,6 +295,14 @@ pub fn resolve_mapping(invocation: &ParsedInvocation) -> RosWireResult<CommandMa
             Some(RestMapping {
                 method: RestMethod::Get,
                 path: "/rest/ip/firewall/nat".to_owned(),
+            }),
+        )),
+        (["ip", "firewall", "connection"], "print") => Ok(print_mapping(
+            &["ip", "firewall", "connection"],
+            "/ip/firewall/connection/print",
+            Some(RestMapping {
+                method: RestMethod::Get,
+                path: "/rest/ip/firewall/connection".to_owned(),
             }),
         )),
         (["ip", "route"], "print") => Ok(print_mapping(
@@ -409,6 +471,14 @@ fn raw_action_kind(routeros_path: &str) -> ActionKind {
         Some("remove") => ActionKind::Remove,
         _ => ActionKind::Raw,
     }
+}
+
+pub fn is_readonly_print_flag(flag: &str) -> bool {
+    matches!(flag, "detail" | "stats" | "count-only")
+}
+
+fn is_unsafe_print_option(option: &str) -> bool {
+    matches!(option, "file" | "interval" | "follow" | "follow-only")
 }
 
 fn mapping_error_context(invocation: &ParsedInvocation) -> ErrorContext {
@@ -718,6 +788,91 @@ mod tests {
     }
 
     #[test]
+    fn maps_print_bare_options_to_classic_attribute_words() {
+        let request = build_protocol_request(&invocation_with_flags(
+            &["ip", "firewall", "filter"],
+            "print",
+            &[],
+            &["stats"],
+        ))
+        .expect("print with stats should map");
+
+        assert_eq!(request.mapping.action_kind, ActionKind::Print);
+        assert_eq!(request.flags, vec!["stats"]);
+        assert_eq!(
+            request.classic_api_words(),
+            vec!["/ip/firewall/filter/print".to_owned(), "=stats=".to_owned(),],
+        );
+    }
+
+    #[test]
+    fn maps_raw_print_bare_options_as_read_only() {
+        let request = build_protocol_request(&invocation_with_flags(
+            &["raw"],
+            "/ip/firewall/connection/print",
+            &[],
+            &["count-only"],
+        ))
+        .expect("raw count-only print should map");
+
+        assert!(request.mapping.is_raw());
+        assert_eq!(request.mapping.action_kind, ActionKind::Print);
+        assert_eq!(request.mapping.idempotency, "read-only");
+        assert_eq!(
+            request.classic_api_words(),
+            vec![
+                "/ip/firewall/connection/print".to_owned(),
+                "=count-only=".to_owned(),
+            ],
+        );
+    }
+
+    #[test]
+    fn rejects_unsafe_or_unknown_print_options() {
+        let unsafe_option = build_protocol_request(&invocation(
+            &["ip", "firewall", "filter"],
+            "print",
+            &[("file", "firewall-export")],
+        ))
+        .expect_err("file print option should not be treated as read-only");
+        assert_eq!(unsafe_option.error_code, ErrorCode::UsageError);
+
+        let unknown_flag = build_protocol_request(&invocation_with_flags(
+            &["ip", "firewall", "filter"],
+            "print",
+            &[],
+            &["brief"],
+        ))
+        .expect_err("unknown bare flag should fail");
+        assert_eq!(unknown_flag.error_code, ErrorCode::UsageError);
+    }
+
+    #[test]
+    fn maps_dhcp_client_and_firewall_connection_prints() {
+        let dhcp = resolve_mapping(&invocation(&["ip", "dhcp-client"], "print", &[]))
+            .expect("dhcp client print should resolve");
+        assert_eq!(dhcp.routeros_path, "/ip/dhcp-client/print");
+        assert_eq!(
+            dhcp.rest_mapping
+                .as_ref()
+                .map(|rest| (&rest.method, rest.path.as_str())),
+            Some((&RestMethod::Get, "/rest/ip/dhcp-client")),
+        );
+
+        let connection =
+            resolve_mapping(&invocation(&["ip", "firewall", "connection"], "print", &[]))
+                .expect("firewall connection print should resolve");
+        assert_eq!(connection.routeros_path, "/ip/firewall/connection/print");
+        assert_eq!(
+            connection
+                .rest_mapping
+                .as_ref()
+                .map(|rest| (&rest.method, rest.path.as_str())),
+            Some((&RestMethod::Get, "/rest/ip/firewall/connection")),
+        );
+    }
+
+    #[test]
     fn maps_raw_write_passthrough_with_unknown_idempotency() {
         let request = build_protocol_request(&invocation(
             &["raw"],
@@ -816,6 +971,15 @@ mod tests {
     }
 
     fn invocation(path: &[&str], action: &str, args: &[(&str, &str)]) -> ParsedInvocation {
+        invocation_with_flags(path, action, args, &[])
+    }
+
+    fn invocation_with_flags(
+        path: &[&str],
+        action: &str,
+        args: &[(&str, &str)],
+        flags: &[&str],
+    ) -> ParsedInvocation {
         ParsedInvocation {
             path: path.iter().map(|item| (*item).to_owned()).collect(),
             action: action.to_owned(),
@@ -823,6 +987,7 @@ mod tests {
                 .iter()
                 .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
                 .collect::<BTreeMap<_, _>>(),
+            flags: flags.iter().map(|flag| (*flag).to_owned()).collect(),
         }
     }
 }

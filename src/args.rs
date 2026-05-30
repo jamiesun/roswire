@@ -73,6 +73,7 @@ pub struct ParsedInvocation {
     pub path: Vec<String>,
     pub action: String,
     pub resolved_args: BTreeMap<String, String>,
+    pub flags: Vec<String>,
 }
 
 #[derive(Debug, Parser)]
@@ -235,30 +236,69 @@ pub fn parse_invocation(tokens: &[String]) -> RosWireResult<ParsedInvocation> {
         )));
     }
 
-    let first_kv_index = tokens
-        .iter()
-        .position(|token| token.contains('='))
-        .unwrap_or(tokens.len());
-    let command_tokens = &tokens[..first_kv_index];
+    if tokens.first().map(String::as_str) == Some("raw") {
+        return parse_raw_invocation(tokens);
+    }
 
-    if command_tokens.is_empty() {
+    let action_index = tokens
+        .iter()
+        .position(|token| is_routeros_action(token))
+        .or_else(|| legacy_action_index(tokens));
+    let Some(action_index) = action_index else {
         return Err(Box::new(RosWireError::usage(
             "missing action: expected <path...> <action>",
         )));
+    };
+
+    if action_index == 0 {
+        return Err(Box::new(RosWireError::usage(
+            "missing path: expected <path...> <action>",
+        )));
     }
 
-    let action = command_tokens
-        .last()
-        .expect("command_tokens cannot be empty")
-        .to_owned();
-    let path = command_tokens[..command_tokens.len().saturating_sub(1)].to_vec();
+    let path = tokens[..action_index].to_vec();
+    let action = tokens[action_index].to_owned();
+    let (resolved_args, flags) = parse_invocation_args(&tokens[action_index + 1..])?;
 
+    Ok(ParsedInvocation {
+        path,
+        action,
+        resolved_args,
+        flags,
+    })
+}
+
+fn parse_raw_invocation(tokens: &[String]) -> RosWireResult<ParsedInvocation> {
+    let Some(raw_path) = tokens.get(1) else {
+        return Err(Box::new(RosWireError::usage(
+            "raw command requires a RouterOS API path, e.g. roswire raw /system/resource/print --json",
+        )));
+    };
+
+    let (resolved_args, flags) = parse_invocation_args(&tokens[2..])?;
+
+    Ok(ParsedInvocation {
+        path: vec!["raw".to_owned()],
+        action: raw_path.to_owned(),
+        resolved_args,
+        flags,
+    })
+}
+
+fn parse_invocation_args(
+    tokens: &[String],
+) -> RosWireResult<(BTreeMap<String, String>, Vec<String>)> {
     let mut resolved_args = BTreeMap::new();
-    for token in &tokens[first_kv_index..] {
+    let mut flags = Vec::new();
+    for token in tokens {
         let Some((key, value)) = token.split_once('=') else {
-            return Err(Box::new(RosWireError::usage(format!(
-                "argument after key=value section must also be key=value: {token}",
-            ))));
+            if token.is_empty() {
+                return Err(Box::new(RosWireError::usage(
+                    "argument flag cannot be empty",
+                )));
+            }
+            flags.push(token.to_owned());
+            continue;
         };
 
         if key.is_empty() {
@@ -270,11 +310,19 @@ pub fn parse_invocation(tokens: &[String]) -> RosWireResult<ParsedInvocation> {
         resolved_args.insert(key.to_owned(), value.to_owned());
     }
 
-    Ok(ParsedInvocation {
-        path,
-        action,
-        resolved_args,
-    })
+    Ok((resolved_args, flags))
+}
+
+fn is_routeros_action(token: &str) -> bool {
+    matches!(token, "print" | "add" | "set" | "remove")
+}
+
+fn legacy_action_index(tokens: &[String]) -> Option<usize> {
+    let first_kv_index = tokens
+        .iter()
+        .position(|token| token.contains('='))
+        .unwrap_or(tokens.len());
+    first_kv_index.checked_sub(1)
 }
 
 #[cfg(test)]
@@ -291,6 +339,7 @@ mod tests {
         assert_eq!(invocation.path, vec!["ip", "address"]);
         assert_eq!(invocation.action, "print");
         assert!(invocation.resolved_args.is_empty());
+        assert!(invocation.flags.is_empty());
     }
 
     #[test]
@@ -317,6 +366,36 @@ mod tests {
             invocation.resolved_args.get("comment").map(String::as_str),
             Some("wan uplink")
         );
+        assert!(invocation.flags.is_empty());
+    }
+
+    #[test]
+    fn parses_print_bare_options_after_action() {
+        let cli = Cli::try_parse_from(["roswire", "ip", "firewall", "filter", "print", "stats"])
+            .expect("args should parse");
+        let invocation = parse_invocation(&cli.tokens).expect("invocation should parse");
+
+        assert_eq!(invocation.path, vec!["ip", "firewall", "filter"]);
+        assert_eq!(invocation.action, "print");
+        assert_eq!(invocation.flags, vec!["stats"]);
+        assert!(invocation.resolved_args.is_empty());
+    }
+
+    #[test]
+    fn parses_raw_path_before_bare_options() {
+        let cli = Cli::try_parse_from([
+            "roswire",
+            "raw",
+            "/ip/firewall/connection/print",
+            "count-only",
+        ])
+        .expect("args should parse");
+        let invocation = parse_invocation(&cli.tokens).expect("invocation should parse");
+
+        assert_eq!(invocation.path, vec!["raw"]);
+        assert_eq!(invocation.action, "/ip/firewall/connection/print");
+        assert_eq!(invocation.flags, vec!["count-only"]);
+        assert!(invocation.resolved_args.is_empty());
     }
 
     #[test]

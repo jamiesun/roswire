@@ -194,6 +194,7 @@ pub fn policy_from_command(command: &CommandDefinition) -> Option<StaticCommandP
         path,
         action: (*action).to_owned(),
         resolved_args: BTreeMap::new(),
+        flags: Vec::new(),
     };
     let mapping = crate::mapping::resolve_mapping(&invocation).ok()?;
 
@@ -290,6 +291,14 @@ fn static_output_fields(command: &str) -> Vec<String> {
             "interface".to_owned(),
             "disabled".to_owned(),
         ],
+        "ip dhcp-client print" => vec![
+            ".id".to_owned(),
+            "interface".to_owned(),
+            "address".to_owned(),
+            "gateway".to_owned(),
+            "status".to_owned(),
+            "disabled".to_owned(),
+        ],
         "ip firewall address-list print" => vec![
             ".id".to_owned(),
             "list".to_owned(),
@@ -319,6 +328,14 @@ fn static_output_fields(command: &str) -> Vec<String> {
             "to-ports".to_owned(),
             "disabled".to_owned(),
             "comment".to_owned(),
+        ],
+        "ip firewall connection print" => vec![
+            ".id".to_owned(),
+            "src-address".to_owned(),
+            "dst-address".to_owned(),
+            "protocol".to_owned(),
+            "tcp-state".to_owned(),
+            "timeout".to_owned(),
         ],
         "ip route print" => vec![
             ".id".to_owned(),

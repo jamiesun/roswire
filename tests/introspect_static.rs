@@ -15,7 +15,9 @@ fn commands_json_contains_catalog_entries() {
             "\"schema_version\":\"roswire.commands.v1\"",
         ))
         .stdout(predicate::str::contains("ip address add"))
+        .stdout(predicate::str::contains("ip dhcp-client print"))
         .stdout(predicate::str::contains("ip firewall address-list print"))
+        .stdout(predicate::str::contains("ip firewall connection print"))
         .stdout(predicate::str::contains("ip firewall filter print"))
         .stdout(predicate::str::contains("ip firewall nat print"))
         .stdout(predicate::str::contains("ip route print"))
@@ -106,7 +108,8 @@ fn help_raw_returns_command_details() {
         ))
         .stdout(predicate::str::contains("\"name\":\"raw\""))
         .stdout(predicate::str::contains("--allow-write"))
-        .stdout(predicate::str::contains("classic API path"));
+        .stdout(predicate::str::contains("classic API path"))
+        .stdout(predicate::str::contains("detail|stats|count-only"));
 }
 
 #[test]
@@ -147,7 +150,29 @@ fn help_firewall_print_returns_command_details() {
         .stdout(predicate::str::contains(
             "\"name\":\"ip firewall filter print\"",
         ))
-        .stdout(predicate::str::contains("without changing packet handling"));
+        .stdout(predicate::str::contains("without changing packet handling"))
+        .stdout(predicate::str::contains("\"name\":\"stats\""));
+}
+
+#[test]
+fn help_parameterized_print_commands_return_details() {
+    let mut dhcp = Command::cargo_bin("roswire").expect("binary should compile");
+    dhcp.args(["help", "ip", "dhcp-client", "print", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"name\":\"ip dhcp-client print\"",
+        ))
+        .stdout(predicate::str::contains("\"name\":\"detail\""));
+
+    let mut conn = Command::cargo_bin("roswire").expect("binary should compile");
+    conn.args(["help", "ip", "firewall", "connection", "print", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"name\":\"ip firewall connection print\"",
+        ))
+        .stdout(predicate::str::contains("\"name\":\"count-only\""));
 }
 
 #[test]
@@ -321,7 +346,8 @@ fn schema_raw_is_registered() {
         ))
         .stdout(predicate::str::contains("\"command\":\"raw\""))
         .stdout(predicate::str::contains("routeros-path"))
-        .stdout(predicate::str::contains("--allow-write"));
+        .stdout(predicate::str::contains("--allow-write"))
+        .stdout(predicate::str::contains("detail|stats|count-only"));
 }
 
 #[test]
@@ -351,11 +377,29 @@ fn schema_ip_route_print_is_registered() {
 }
 
 #[test]
-fn schema_firewall_prints_are_registered() {
-    for topic in [
-        ["ip", "firewall", "address-list", "print"],
-        ["ip", "firewall", "filter", "print"],
-        ["ip", "firewall", "nat", "print"],
+fn schema_firewall_address_list_print_is_registered() {
+    let mut cmd = Command::cargo_bin("roswire").expect("binary should compile");
+    cmd.args([
+        "schema",
+        "command",
+        "ip",
+        "firewall",
+        "address-list",
+        "print",
+        "--json",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"arguments\":[]"));
+}
+
+#[test]
+fn schema_parameterized_prints_are_registered() {
+    for (topic, option) in [
+        (&["ip", "dhcp-client", "print"][..], "detail"),
+        (&["ip", "firewall", "filter", "print"][..], "stats"),
+        (&["ip", "firewall", "nat", "print"][..], "stats"),
+        (&["ip", "firewall", "connection", "print"][..], "count-only"),
     ] {
         let mut cmd = Command::cargo_bin("roswire").expect("binary should compile");
         cmd.args(["schema", "command"])
@@ -363,7 +407,8 @@ fn schema_firewall_prints_are_registered() {
             .arg("--json")
             .assert()
             .success()
-            .stdout(predicate::str::contains("\"arguments\":[]"));
+            .stdout(predicate::str::contains(format!("\"name\":\"{option}\"")))
+            .stdout(predicate::str::contains("readonly-print-option"));
     }
 }
 

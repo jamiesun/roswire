@@ -190,6 +190,8 @@ Common read-only RouterOS commands:
 roswire --profile studio interface print --json
 roswire --profile studio ip address print --json
 roswire --profile studio ip route print --json
+roswire --profile studio ip firewall filter print stats --json
+roswire --profile studio ip firewall connection print count-only --json
 roswire --profile studio system resource print --json
 ```
 
@@ -197,7 +199,8 @@ Raw read-only print commands for advanced RouterOS paths:
 
 ```bash
 roswire --profile studio raw /system/resource/print --json
-roswire --profile studio raw /interface/print detail=yes --json
+roswire --profile studio raw /interface/print detail --json
+roswire --profile studio raw /ip/dhcp-client/print detail --json
 ```
 
 Transfer dry runs with explicit SSH safety inputs:

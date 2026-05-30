@@ -51,7 +51,7 @@ roswire config device set routeros-v7 \
 roswire config secret set routeros-v7 ssh_key_passphrase type=env env=ROSWIRE_ACCEPTANCE_KEY_PASSPHRASE --json
 ```
 
-Harness 自身只读取 `ROSWIRE_ACCEPTANCE_*` 控制变量。若不想把 `ssh_host_key` / `allow_from` 写入 profile，可用 `ROSWIRE_ACCEPTANCE_SSH_HOST_KEY` 和 `ROSWIRE_ACCEPTANCE_ALLOW_FROM` 作为脚本运行时 CLI 覆盖；若已写入 profile 且希望运行 transfer dry-run case，设置 `ROSWIRE_ACCEPTANCE_RUN_TRANSFER_DRY_RUN=1`。
+Harness 自身只读取 `ROSWIRE_ACCEPTANCE_*` 控制变量。若不想把 `ssh_host_key` / `allow_from` 写入 profile，可用 `ROSWIRE_ACCEPTANCE_SSH_HOST_KEY` 和 `ROSWIRE_ACCEPTANCE_ALLOW_FROM` 作为脚本运行时 CLI 覆盖；若已写入 profile 且希望运行 transfer dry-run case，设置 `ROSWIRE_ACCEPTANCE_RUN_TRANSFER_DRY_RUN=1`。文件上传默认使用 RouterOS 文件根目录；如果目标设备需要 `flash/` 等前缀，设置 `ROSWIRE_ACCEPTANCE_REMOTE_PATH_PREFIX=flash`。
 
 ## Harness
 

@@ -13,7 +13,7 @@ Linux 用户可以使用一行命令从 latest GitHub Release 安装：
 curl -fsSL https://raw.githubusercontent.com/AS153929/roswire/main/scripts/install.sh | sh
 ```
 
-脚本会自动识别 Linux x86_64 / arm64，下载对应 release 产物和 `checksums.txt`，校验 SHA256，然后安装到 `/usr/local/bin/roswire`。如果当前用户无写入权限，脚本会尝试通过 `sudo` 执行安装。
+脚本会自动识别 Linux x86_64 / arm64，下载对应 release 产物和 `checksums.txt`，校验 SHA256，然后安装到 `/usr/local/bin/roswire`。Linux release 产物使用 musl 静态目标构建，不依赖目标机器的 glibc。如果当前用户无写入权限，脚本会尝试通过 `sudo` 执行安装。
 
 可通过环境变量覆盖默认行为：
 
@@ -63,6 +63,8 @@ Release 产物命名约定：
 | Linux arm64 | `roswire-linux-arm64.tar.gz` |
 | Windows x86_64 | `roswire-windows-amd64.zip` |
 | 校验和 | `checksums.txt` |
+
+Linux 归档内的 `roswire` 是 musl 静态链接二进制，适合 glibc 版本较旧或没有 glibc 的发行环境。Release workflow 会对 Linux 二进制做 UPX 压缩以降低下载和落盘体积。
 
 macOS 预编译产物暂不发布；macOS 用户请先按“从源码安装”构建本机二进制。
 

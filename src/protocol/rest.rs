@@ -1,5 +1,5 @@
 use crate::error::{RosWireError, RosWireResult};
-use crate::mapping::{ProtocolRequest, RestMethod};
+use crate::mapping::{ActionKind, ProtocolRequest, RestMethod};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use serde_json::Value;
 use std::time::Duration;
@@ -14,7 +14,7 @@ pub struct RestClient {
 
 impl RestClient {
     pub fn https(host: &str, port: u16, user: &str, password: &str) -> Self {
-        Self::with_base_url(format!("https://{host}:{port}"), user, password)
+        Self::with_base_url(https_base_url(host, port), user, password)
     }
 
     pub fn with_base_url(base_url: impl Into<String>, user: &str, password: &str) -> Self {
@@ -30,19 +30,8 @@ impl RestClient {
     }
 
     pub fn execute_request(&self, request: &ProtocolRequest) -> RosWireResult<Value> {
-        let rest_mapping = request.mapping.rest_mapping.as_ref().ok_or_else(|| {
-            Box::new(RosWireError::unsupported_action(format!(
-                "REST mapping unavailable for {}",
-                request.mapping.routeros_path,
-            )))
-        })?;
-
-        let path = expand_rest_path(&rest_mapping.path, &request.resolved_args)?;
-        self.send(
-            rest_mapping.method,
-            &path,
-            request_body(rest_mapping.method, request),
-        )
+        let rest_request = rest_execution_request(request)?;
+        self.send(rest_request.method, &rest_request.path, rest_request.body)
     }
 
     pub fn get(&self, path: &str) -> RosWireResult<Value> {
@@ -99,6 +88,50 @@ impl RestClient {
     }
 }
 
+struct RestExecutionRequest {
+    method: RestMethod,
+    path: String,
+    body: Option<Value>,
+}
+
+fn rest_execution_request(request: &ProtocolRequest) -> RosWireResult<RestExecutionRequest> {
+    if let Some(rest_mapping) = request.mapping.rest_mapping.as_ref() {
+        if should_use_print_post(request) {
+            let path = rest_print_command_path(&rest_mapping.path);
+            return Ok(RestExecutionRequest {
+                method: RestMethod::Post,
+                path,
+                body: request_body(RestMethod::Post, request),
+            });
+        }
+
+        let path = expand_rest_path(&rest_mapping.path, &request.resolved_args)?;
+        return Ok(RestExecutionRequest {
+            method: rest_mapping.method,
+            path,
+            body: request_body(rest_mapping.method, request),
+        });
+    }
+
+    if request.mapping.is_raw() && request.mapping.action_kind == ActionKind::Print {
+        return Ok(RestExecutionRequest {
+            method: RestMethod::Post,
+            path: raw_print_rest_path(&request.mapping.routeros_path)?,
+            body: request_body(RestMethod::Post, request),
+        });
+    }
+
+    Err(Box::new(RosWireError::unsupported_action(format!(
+        "REST mapping unavailable for {}",
+        request.mapping.routeros_path,
+    ))))
+}
+
+fn should_use_print_post(request: &ProtocolRequest) -> bool {
+    request.mapping.action_kind == ActionKind::Print
+        && (!request.flags.is_empty() || !request.resolved_args.is_empty())
+}
+
 fn parse_response(method: RestMethod, response: ureq::Response) -> RosWireResult<Value> {
     let body = response.into_string().map_err(|error| {
         Box::new(RosWireError::network(format!(
@@ -143,6 +176,30 @@ pub fn build_url(base_url: &str, path: &str) -> String {
     )
 }
 
+fn https_base_url(host: &str, port: u16) -> String {
+    format!("https://{}:{port}", url_host_authority(host))
+}
+
+fn url_host_authority(host: &str) -> String {
+    if host.starts_with('[') && host.ends_with(']') {
+        return host.to_owned();
+    }
+
+    if host.contains(':') {
+        format!("[{}]", encode_ipv6_zone(host))
+    } else {
+        host.to_owned()
+    }
+}
+
+fn encode_ipv6_zone(host: &str) -> String {
+    if host.contains("%25") {
+        host.to_owned()
+    } else {
+        host.replace('%', "%25")
+    }
+}
+
 fn trim_trailing_slash(value: impl AsRef<str>) -> String {
     value.as_ref().trim_end_matches('/').to_owned()
 }
@@ -155,16 +212,41 @@ fn basic_auth_header(user: &str, password: &str) -> String {
 fn request_body(method: RestMethod, request: &ProtocolRequest) -> Option<Value> {
     match method {
         RestMethod::Get | RestMethod::Delete => None,
-        RestMethod::Post | RestMethod::Put | RestMethod::Patch => Some(
-            request
-                .resolved_args
+        RestMethod::Post | RestMethod::Put | RestMethod::Patch => {
+            let mut body = request
+                .flags
                 .iter()
-                .filter(|(key, _)| method != RestMethod::Patch || key.as_str() != ".id")
-                .map(|(key, value)| (key.clone(), Value::String(value.clone())))
-                .collect::<serde_json::Map<_, _>>()
-                .into(),
-        ),
+                .map(|flag| (flag.clone(), Value::String(String::new())))
+                .collect::<serde_json::Map<_, _>>();
+            body.extend(
+                request
+                    .resolved_args
+                    .iter()
+                    .filter(|(key, _)| method != RestMethod::Patch || key.as_str() != ".id")
+                    .map(|(key, value)| (key.clone(), Value::String(value.clone()))),
+            );
+            Some(body.into())
+        }
     }
+}
+
+fn rest_print_command_path(rest_resource_path: &str) -> String {
+    let path = rest_resource_path.trim_end_matches('/');
+    if path.ends_with("/print") {
+        path.to_owned()
+    } else {
+        format!("{path}/print")
+    }
+}
+
+fn raw_print_rest_path(routeros_path: &str) -> RosWireResult<String> {
+    if !routeros_path.starts_with('/') || !routeros_path.ends_with("/print") {
+        return Err(Box::new(RosWireError::unsupported_action(format!(
+            "REST raw passthrough requires a RouterOS /.../print path: {routeros_path}",
+        ))));
+    }
+
+    Ok(format!("/rest{}", routeros_path))
 }
 
 fn expand_rest_path(
@@ -186,8 +268,8 @@ fn expand_rest_path(
 #[cfg(test)]
 mod tests {
     use super::{
-        basic_auth_header, build_url, map_status_error, request_body, routeros_error_message,
-        RestClient,
+        basic_auth_header, build_url, https_base_url, map_status_error, request_body,
+        rest_execution_request, routeros_error_message, RestClient,
     };
     use crate::args::ParsedInvocation;
     use crate::error::ErrorCode;
@@ -203,6 +285,18 @@ mod tests {
         assert_eq!(
             build_url("http://127.0.0.1:8080/", "/rest/ip/address"),
             "http://127.0.0.1:8080/rest/ip/address",
+        );
+        assert_eq!(
+            https_base_url("fe80::4a8f:5aff:fea3:ea6%en0", 443),
+            "https://[fe80::4a8f:5aff:fea3:ea6%25en0]:443",
+        );
+        assert_eq!(
+            https_base_url("fe80::4a8f:5aff:fea3:ea6%25en0", 443),
+            "https://[fe80::4a8f:5aff:fea3:ea6%25en0]:443",
+        );
+        assert_eq!(
+            https_base_url("router.example", 443),
+            "https://router.example:443",
         );
     }
 
@@ -260,6 +354,7 @@ mod tests {
             path: vec!["ip".to_owned(), "address".to_owned()],
             action: "print".to_owned(),
             resolved_args: BTreeMap::new(),
+            flags: Vec::new(),
         })
         .expect("request should map");
 
@@ -285,6 +380,7 @@ mod tests {
             path: vec!["ip".to_owned(), "route".to_owned()],
             action: "print".to_owned(),
             resolved_args: BTreeMap::new(),
+            flags: Vec::new(),
         })
         .expect("request should map");
 
@@ -314,6 +410,7 @@ mod tests {
             ],
             action: "print".to_owned(),
             resolved_args: BTreeMap::new(),
+            flags: Vec::new(),
         })
         .expect("request should map");
 
@@ -324,6 +421,54 @@ mod tests {
 
         assert_eq!(value[0]["list"], "trusted");
         assert!(http_request.contains("GET /rest/ip/firewall/address-list HTTP/1.1"));
+    }
+
+    #[test]
+    fn rest_parameterized_print_uses_post_command_body() {
+        let server = TestServer::responding_with(
+            200,
+            "application/json",
+            r#"[{".id":"*1","action":"accept","packets":"10"}]"#,
+        );
+        let credential = test_credential();
+        let client = RestClient::with_base_url(server.base_url(), "admin", &credential);
+        let request = build_protocol_request(&ParsedInvocation {
+            path: vec!["ip".to_owned(), "firewall".to_owned(), "filter".to_owned()],
+            action: "print".to_owned(),
+            resolved_args: BTreeMap::new(),
+            flags: vec!["stats".to_owned()],
+        })
+        .expect("request should map");
+
+        let value = client
+            .execute_request(&request)
+            .expect("REST stats print should work");
+        let http_request = server.request();
+
+        assert_eq!(value[0]["packets"], "10");
+        assert!(http_request.contains("POST /rest/ip/firewall/filter/print HTTP/1.1"));
+        assert!(http_request.contains("Content-Type: application/json"));
+        assert!(http_request.contains(r#""stats":"""#));
+    }
+
+    #[test]
+    fn rest_raw_print_uses_post_command_path() {
+        let request = build_protocol_request(&ParsedInvocation {
+            path: vec!["raw".to_owned()],
+            action: "/ip/firewall/connection/print".to_owned(),
+            resolved_args: BTreeMap::new(),
+            flags: vec!["count-only".to_owned()],
+        })
+        .expect("raw print request should map");
+
+        let rest_request = rest_execution_request(&request).expect("raw print should map to REST");
+
+        assert_eq!(rest_request.method, RestMethod::Post);
+        assert_eq!(rest_request.path, "/rest/ip/firewall/connection/print");
+        assert_eq!(
+            rest_request.body.expect("print post should have body")["count-only"],
+            ""
+        );
     }
 
     #[test]
@@ -339,6 +484,7 @@ mod tests {
             path: vec!["tool".to_owned(), "netwatch".to_owned()],
             action: "print".to_owned(),
             resolved_args: BTreeMap::new(),
+            flags: Vec::new(),
         })
         .expect("request should map");
 
@@ -364,6 +510,7 @@ mod tests {
             path: vec!["interface".to_owned(), "wireguard".to_owned()],
             action: "print".to_owned(),
             resolved_args: BTreeMap::new(),
+            flags: Vec::new(),
         })
         .expect("request should map");
 
@@ -393,6 +540,7 @@ mod tests {
             ],
             action: "print".to_owned(),
             resolved_args: BTreeMap::new(),
+            flags: Vec::new(),
         })
         .expect("request should map");
 
@@ -418,6 +566,7 @@ mod tests {
             path: vec!["system".to_owned(), "package".to_owned()],
             action: "print".to_owned(),
             resolved_args: BTreeMap::new(),
+            flags: Vec::new(),
         })
         .expect("request should map");
 
@@ -442,6 +591,7 @@ mod tests {
                 ("name".to_owned(), "bootstrap".to_owned()),
                 ("source".to_owned(), ":put hello".to_owned()),
             ]),
+            flags: Vec::new(),
         })
         .expect("request should map");
 
@@ -469,6 +619,7 @@ mod tests {
             path: vec!["user".to_owned()],
             action: "print".to_owned(),
             resolved_args: BTreeMap::new(),
+            flags: Vec::new(),
         })
         .expect("request should map");
 
@@ -493,6 +644,7 @@ mod tests {
                 (".id".to_owned(), "*1".to_owned()),
                 ("comment".to_owned(), "uplink".to_owned()),
             ]),
+            flags: Vec::new(),
         })
         .expect("request should map");
 
@@ -514,6 +666,7 @@ mod tests {
             path: vec!["ip".to_owned(), "address".to_owned()],
             action: "set".to_owned(),
             resolved_args: BTreeMap::new(),
+            flags: Vec::new(),
         })
         .expect_err("missing id should fail before HTTP");
 
@@ -532,6 +685,7 @@ mod tests {
                 ("address".to_owned(), "192.0.2.10/24".to_owned()),
                 ("interface".to_owned(), "bridge".to_owned()),
             ]),
+            flags: Vec::new(),
         })
         .expect("add should map");
 
@@ -550,6 +704,7 @@ mod tests {
             path: vec!["ip".to_owned(), "address".to_owned()],
             action: "remove".to_owned(),
             resolved_args: BTreeMap::from([(".id".to_owned(), "*1".to_owned())]),
+            flags: Vec::new(),
         })
         .expect("remove should map");
 
@@ -592,6 +747,7 @@ mod tests {
                 (".id".to_owned(), "*1".to_owned()),
                 ("disabled".to_owned(), "yes".to_owned()),
             ]),
+            flags: Vec::new(),
         })
         .expect("request should map");
 
