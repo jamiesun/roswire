@@ -221,13 +221,15 @@ Use `raw` for advanced read-only queries that are not covered by the command cat
 ```bash
 roswire --json --profile <profile> raw /system/resource/print
 roswire --json --profile <profile> raw /interface/bridge/print
-roswire --json --profile <profile> raw /ip/dhcp-client/print detail=yes
+roswire --json --profile <profile> raw /ip/dhcp-client/print detail
+roswire --json --profile <profile> raw /ip/firewall/connection/print count-only
 ```
 
 `raw` rules:
 
 - The first argument is a classic RouterOS API path that starts with `/`.
-- Additional arguments use `key=value`.
+- Additional arguments can use `key=value`; read-only `/.../print` also accepts bare `detail`, `stats`, and `count-only`.
+- Unsafe print options such as `file`, `interval`, `follow`, and unknown bare tokens are rejected.
 - roswire redacts sensitive keys and local paths in errors and logs.
 - Non-`/print` raw commands require `--allow-write`; avoid them unless the user explicitly asks for them.
 

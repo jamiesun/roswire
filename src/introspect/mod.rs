@@ -298,6 +298,17 @@ fn lookup_command(topic: &str) -> Option<CommandDefinition> {
         .find(|command| command.name.eq_ignore_ascii_case(topic))
 }
 
+fn print_option_argument(name: &str, description: &str) -> ArgumentSpec {
+    ArgumentSpec {
+        name: name.to_owned(),
+        style: "flag".to_owned(),
+        required: false,
+        arg_type: "readonly-print-option".to_owned(),
+        description: description.to_owned(),
+        example: Some(name.to_owned()),
+    }
+}
+
 fn catalog() -> Vec<CommandDefinition> {
     vec![
         CommandDefinition {
@@ -400,6 +411,27 @@ fn catalog() -> Vec<CommandDefinition> {
             ],
         },
         CommandDefinition {
+            name: "ip dhcp-client print".to_owned(),
+            summary: "Print DHCP client records; accepts the read-only `detail` print option."
+                .to_owned(),
+            kind: "routeros-command".to_owned(),
+            syntax: "roswire ip dhcp-client print [detail] --json".to_owned(),
+            arguments: vec![print_option_argument(
+                "detail",
+                "Return detailed property=value output for DHCP client records.",
+            )],
+            examples: vec![
+                "roswire ip dhcp-client print --json".to_owned(),
+                "roswire ip dhcp-client print detail --json".to_owned(),
+            ],
+            errors: vec![
+                "USAGE_ERROR".to_owned(),
+                "AUTH_FAILED".to_owned(),
+                "NETWORK_ERROR".to_owned(),
+                "ROS_API_FAILURE".to_owned(),
+            ],
+        },
+        CommandDefinition {
             name: "ip firewall address-list print".to_owned(),
             summary: "Print firewall address-list entries.".to_owned(),
             kind: "routeros-command".to_owned(),
@@ -417,9 +449,15 @@ fn catalog() -> Vec<CommandDefinition> {
             name: "ip firewall filter print".to_owned(),
             summary: "Print firewall filter rules without changing packet handling.".to_owned(),
             kind: "routeros-command".to_owned(),
-            syntax: "roswire ip firewall filter print --json".to_owned(),
-            arguments: vec![],
-            examples: vec!["roswire ip firewall filter print --json".to_owned()],
+            syntax: "roswire ip firewall filter print [stats] --json".to_owned(),
+            arguments: vec![print_option_argument(
+                "stats",
+                "Include read-only firewall counter statistics in the print response.",
+            )],
+            examples: vec![
+                "roswire ip firewall filter print --json".to_owned(),
+                "roswire ip firewall filter print stats --json".to_owned(),
+            ],
             errors: vec![
                 "USAGE_ERROR".to_owned(),
                 "AUTH_FAILED".to_owned(),
@@ -431,9 +469,36 @@ fn catalog() -> Vec<CommandDefinition> {
             name: "ip firewall nat print".to_owned(),
             summary: "Print firewall NAT rules without changing packet handling.".to_owned(),
             kind: "routeros-command".to_owned(),
-            syntax: "roswire ip firewall nat print --json".to_owned(),
-            arguments: vec![],
-            examples: vec!["roswire ip firewall nat print --json".to_owned()],
+            syntax: "roswire ip firewall nat print [stats] --json".to_owned(),
+            arguments: vec![print_option_argument(
+                "stats",
+                "Include read-only NAT counter statistics in the print response.",
+            )],
+            examples: vec![
+                "roswire ip firewall nat print --json".to_owned(),
+                "roswire ip firewall nat print stats --json".to_owned(),
+            ],
+            errors: vec![
+                "USAGE_ERROR".to_owned(),
+                "AUTH_FAILED".to_owned(),
+                "NETWORK_ERROR".to_owned(),
+                "ROS_API_FAILURE".to_owned(),
+            ],
+        },
+        CommandDefinition {
+            name: "ip firewall connection print".to_owned(),
+            summary: "Print firewall connection tracking entries; accepts read-only `count-only`."
+                .to_owned(),
+            kind: "routeros-command".to_owned(),
+            syntax: "roswire ip firewall connection print [count-only] --json".to_owned(),
+            arguments: vec![print_option_argument(
+                "count-only",
+                "Return only the number of matching connection tracking entries.",
+            )],
+            examples: vec![
+                "roswire ip firewall connection print --json".to_owned(),
+                "roswire ip firewall connection print count-only --json".to_owned(),
+            ],
             errors: vec![
                 "USAGE_ERROR".to_owned(),
                 "AUTH_FAILED".to_owned(),
@@ -552,9 +617,9 @@ fn catalog() -> Vec<CommandDefinition> {
         },
         CommandDefinition {
             name: "raw".to_owned(),
-            summary: "Explicitly pass a RouterOS classic API path and key=value words for advanced unsupported commands.".to_owned(),
+            summary: "Explicitly pass a RouterOS API path plus read-only print options or key=value words for advanced unsupported commands.".to_owned(),
             kind: "raw-routeros-command".to_owned(),
-            syntax: "roswire raw /system/resource/print [key=value ...] --json".to_owned(),
+            syntax: "roswire raw /system/resource/print [detail|stats|count-only] [key=value ...] --json".to_owned(),
             arguments: vec![
                 ArgumentSpec {
                     name: "routeros-path".to_owned(),
@@ -572,17 +637,23 @@ fn catalog() -> Vec<CommandDefinition> {
                     description: "Additional RouterOS API word arguments. Sensitive keys and local paths are redacted in errors/logs.".to_owned(),
                     example: Some("detail=yes".to_owned()),
                 },
+                print_option_argument(
+                    "detail|stats|count-only",
+                    "Accepted bare options for raw read-only `/.../print` commands. Unsafe options such as file, interval, follow, and unknown bare tokens are rejected.",
+                ),
                 ArgumentSpec {
                     name: "--allow-write".to_owned(),
                     style: "flag".to_owned(),
                     required: false,
                     arg_type: "bool".to_owned(),
-                    description: "Required for raw commands that are not `/.../print`; REST generic raw passthrough is intentionally unavailable.".to_owned(),
+                    description: "Required for raw commands that are not `/.../print`; read-only raw print can use classic API or REST POST.".to_owned(),
                     example: Some("--allow-write".to_owned()),
                 },
             ],
             examples: vec![
                 "roswire raw /system/resource/print --json".to_owned(),
+                "roswire raw /ip/dhcp-client/print detail --json".to_owned(),
+                "roswire raw /ip/firewall/connection/print count-only --json".to_owned(),
                 "roswire raw /tool/fetch url=https://example.invalid/a.rsc --allow-write --json".to_owned(),
             ],
             errors: vec![

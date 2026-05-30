@@ -34,7 +34,7 @@ Bridge and DHCP client state:
 
 ```bash
 roswire --json --profile <profile> raw /interface/bridge/print
-roswire --json --profile <profile> raw /ip/dhcp-client/print detail=yes
+roswire --json --profile <profile> raw /ip/dhcp-client/print detail
 ```
 
 Cloud/DDNS and DNS:
@@ -47,8 +47,13 @@ roswire --json --profile <profile> raw /ip/dns/print
 Firewall detail when the built-in print command is not enough:
 
 ```bash
-roswire --json --profile <profile> raw /ip/firewall/filter/print detail=yes
+roswire --json --profile <profile> raw /ip/firewall/filter/print detail
+roswire --json --profile <profile> raw /ip/firewall/connection/print count-only
 ```
+
+Only read-only bare print options are accepted: `detail`, `stats`, and
+`count-only`. Options that can write files or change command lifetime, such as
+`file`, `interval`, and `follow`, are not safe defaults.
 
 ## Interpreting failures
 

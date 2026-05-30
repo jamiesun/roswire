@@ -48,6 +48,7 @@ impl<S: ApiStream> ClassicApiSession<S> {
             let sentence = parse_api_sentence(&sentence_words)?;
             match sentence.kind {
                 SentenceKind::Re => rows.push(sentence.attributes),
+                SentenceKind::Empty => return Ok(rows),
                 SentenceKind::Done => return Ok(rows),
                 SentenceKind::Trap | SentenceKind::Fatal => {
                     return Err(Box::new(sentence.trap_error().unwrap_or_else(|| {
@@ -93,6 +94,11 @@ pub fn probe_resource<S: ApiStream + ?Sized>(stream: &mut S) -> RosWireResult<Re
         match sentence.kind {
             SentenceKind::Re => {
                 row = Some(sentence.attributes);
+            }
+            SentenceKind::Empty => {
+                return Err(Box::new(RosWireError::ros_api_failure(
+                    "RouterOS resource probe returned no rows",
+                )));
             }
             SentenceKind::Done => {
                 let Some(attributes) = row else {
@@ -254,6 +260,7 @@ mod tests {
             path: vec!["interface".to_owned()],
             action: "print".to_owned(),
             resolved_args: BTreeMap::new(),
+            flags: Vec::new(),
         })
         .expect("request should map");
 
@@ -265,6 +272,18 @@ mod tests {
         assert_eq!(rows[0].get("name").map(String::as_str), Some("ether1"));
         assert_eq!(rows[1].get(".id").map(String::as_str), Some("*2"));
         assert_eq!(session.stream.written_sentences()[0][0], "/interface/print");
+    }
+
+    #[test]
+    fn executor_treats_empty_sentence_as_empty_success() {
+        let stream = FakeApiStream::with_sentences(&[vec!["!empty".to_owned()]]);
+        let mut session = ClassicApiSession::new(stream);
+
+        let rows = session
+            .execute_words(&["/ip/address/print".to_owned()])
+            .expect("empty print result should be successful");
+
+        assert!(rows.is_empty());
     }
 
     #[test]
@@ -319,6 +338,7 @@ mod tests {
                     .into_iter()
                     .map(|(key, value)| (key.to_owned(), value.to_owned()))
                     .collect(),
+                flags: Vec::new(),
             })
             .expect("write request should map");
 

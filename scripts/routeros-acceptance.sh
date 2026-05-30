@@ -12,6 +12,7 @@ FILE_WORKFLOWS_ENABLED="${ROSWIRE_ACCEPTANCE_RUN_FILE_WORKFLOWS:-0}"
 TRANSFER_DRY_RUN_ENABLED="${ROSWIRE_ACCEPTANCE_RUN_TRANSFER_DRY_RUN:-0}"
 ACCEPTANCE_SSH_HOST_KEY="${ROSWIRE_ACCEPTANCE_SSH_HOST_KEY:-}"
 ACCEPTANCE_ALLOW_FROM="${ROSWIRE_ACCEPTANCE_ALLOW_FROM:-}"
+REMOTE_PATH_PREFIX="${ROSWIRE_ACCEPTANCE_REMOTE_PATH_PREFIX:-}"
 
 mkdir -p "$OUT_DIR"
 
@@ -33,6 +34,15 @@ write_meta() {
     "$(json_escape "$name")" \
     "$rc" \
     "$(json_escape "$command")" > "$meta"
+}
+
+remote_path() {
+  local name="$1"
+  if [[ -n "$REMOTE_PATH_PREFIX" ]]; then
+    printf '%s/%s' "${REMOTE_PATH_PREFIX%/}" "$name"
+  else
+    printf '%s' "$name"
+  fi
 }
 
 run_case() {
@@ -93,7 +103,7 @@ fi
 if [[ "$TRANSFER_DRY_RUN_ENABLED" == "1" || -n "$ACCEPTANCE_SSH_HOST_KEY" || -n "$ACCEPTANCE_ALLOW_FROM" ]]; then
   sample="$OUT_DIR/roswire-acceptance.rsc"
   printf ':put "roswire acceptance"\n' > "$sample"
-  transfer_args=(file upload "$sample" flash/roswire-acceptance.rsc --dry-run --json)
+  transfer_args=(file upload "$sample" "$(remote_path roswire-acceptance.rsc)" --dry-run --json)
   if [[ -n "$ACCEPTANCE_SSH_HOST_KEY" ]]; then
     transfer_args+=(--ssh-host-key "$ACCEPTANCE_SSH_HOST_KEY")
   fi
@@ -110,7 +120,7 @@ if [[ "$FILE_WORKFLOWS_ENABLED" != "1" ]]; then
 else
   sample="$OUT_DIR/roswire-acceptance-live.rsc"
   printf ':put "roswire live acceptance"\n' > "$sample"
-  live_upload_args=(file upload "$sample" flash/roswire-acceptance-live.rsc --json)
+  live_upload_args=(file upload "$sample" "$(remote_path roswire-acceptance-live.rsc)" --json)
   live_export_args=(export download "$OUT_DIR/roswire-export.rsc" --cleanup --json)
   if [[ -n "$ACCEPTANCE_SSH_HOST_KEY" ]]; then
     live_upload_args+=(--ssh-host-key "$ACCEPTANCE_SSH_HOST_KEY")

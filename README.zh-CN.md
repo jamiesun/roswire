@@ -190,6 +190,8 @@ roswire config secret set studio password type=keychain service=roswire account=
 roswire --profile studio interface print --json
 roswire --profile studio ip address print --json
 roswire --profile studio ip route print --json
+roswire --profile studio ip firewall filter print stats --json
+roswire --profile studio ip firewall connection print count-only --json
 roswire --profile studio system resource print --json
 ```
 
@@ -197,7 +199,8 @@ roswire --profile studio system resource print --json
 
 ```bash
 roswire --profile studio raw /system/resource/print --json
-roswire --profile studio raw /interface/print detail=yes --json
+roswire --profile studio raw /interface/print detail --json
+roswire --profile studio raw /ip/dhcp-client/print detail --json
 ```
 
 带显式 SSH 安全输入的传输 dry-run：

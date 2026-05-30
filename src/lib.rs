@@ -85,6 +85,12 @@ fn run_with_cli(cli: &Cli) -> RosWireResult<()> {
 
 fn execute_invocation(invocation: args::ParsedInvocation, cli: &Cli) -> RosWireResult<()> {
     let request = mapping::build_protocol_request(&invocation)?;
+    if cli.dry_run {
+        let payload = render_command_plan(&invocation, &request, cli)?;
+        println!("{payload}");
+        return Ok(());
+    }
+
     validate_raw_safety(&invocation, &request, cli)?;
 
     let target = resolve_execution_target(cli)?;
@@ -227,6 +233,72 @@ struct WriteSuccessPayload<'a> {
     action: &'static str,
     selected_protocol: &'a str,
     response: Value,
+}
+
+#[derive(Debug, Serialize)]
+struct CommandPlanPayload {
+    schema_version: &'static str,
+    dry_run: bool,
+    command: String,
+    routeros_path: String,
+    action: String,
+    requested_protocol: String,
+    selected_protocol: &'static str,
+    routeros_version: &'static str,
+    resolved_args: BTreeMap<String, String>,
+    flags: Vec<String>,
+    side_effects: Vec<String>,
+    idempotency: String,
+    will_connect: bool,
+    will_modify_routeros: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rest_mapping: Option<RestPlanMapping>,
+}
+
+#[derive(Debug, Serialize)]
+struct RestPlanMapping {
+    method: &'static str,
+    path: String,
+}
+
+fn render_command_plan(
+    invocation: &args::ParsedInvocation,
+    request: &ProtocolRequest,
+    cli: &Cli,
+) -> RosWireResult<String> {
+    let rest_mapping = request
+        .mapping
+        .rest_mapping
+        .as_ref()
+        .map(|mapping| RestPlanMapping {
+            method: mapping.method.as_str(),
+            path: mapping.path.clone(),
+        });
+
+    serialize_payload(
+        &CommandPlanPayload {
+            schema_version: "roswire.command.plan.v1",
+            dry_run: true,
+            command: mapping::command_name(invocation),
+            routeros_path: request.mapping.routeros_path.clone(),
+            action: request.mapping.action_kind.as_str().to_owned(),
+            requested_protocol: cli
+                .protocol
+                .map(|protocol| protocol.as_str())
+                .unwrap_or("auto")
+                .to_owned(),
+            selected_protocol: "not-selected",
+            routeros_version: "not-probed",
+            resolved_args: error::redact_resolved_args(&request.resolved_args),
+            flags: request.flags.clone(),
+            side_effects: request.mapping.side_effects.clone(),
+            idempotency: request.mapping.idempotency.clone(),
+            will_connect: false,
+            will_modify_routeros: request.mapping.action_kind != ActionKind::Print,
+            rest_mapping,
+        },
+        "RouterOS command dry-run plan",
+    )
 }
 
 fn render_protocol_payload<T: Serialize>(
@@ -893,6 +965,7 @@ value = "v1:nonce:ciphertext"
                 ("address".to_owned(), "192.0.2.10/24".to_owned()),
                 ("interface".to_owned(), "bridge".to_owned()),
             ]),
+            flags: Vec::new(),
         })
         .expect("write request should map");
         let rows = Vec::<BTreeMap<String, String>>::new();
@@ -918,6 +991,7 @@ value = "v1:nonce:ciphertext"
                 ("name".to_owned(), "bootstrap".to_owned()),
                 ("source".to_owned(), ":put secret".to_owned()),
             ]),
+            flags: Vec::new(),
         })
         .expect("script write request should map");
         let response = serde_json::json!({
@@ -954,6 +1028,7 @@ value = "v1:nonce:ciphertext"
                 ("password".to_owned(), "super-secret".to_owned()),
                 ("src-path".to_owned(), "/Users/example/setup.rsc".to_owned()),
             ]),
+            flags: Vec::new(),
         };
         let request = build_protocol_request(&invocation).expect("raw request should map");
 
@@ -988,6 +1063,7 @@ value = "v1:nonce:ciphertext"
                 "url".to_owned(),
                 "https://example.invalid/a.rsc".to_owned(),
             )]),
+            flags: Vec::new(),
         })
         .expect("raw write request should map");
         let response = serde_json::json!({"status":"ok"});
@@ -1006,6 +1082,7 @@ value = "v1:nonce:ciphertext"
             path: vec!["ip".to_owned(), "address".to_owned()],
             action: "print".to_owned(),
             resolved_args: BTreeMap::from([("password".to_owned(), "test-value".to_owned())]),
+            flags: Vec::new(),
         };
         let target = ExecutionTarget {
             host: "router.local".to_owned(),

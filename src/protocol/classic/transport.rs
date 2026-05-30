@@ -30,9 +30,10 @@ pub struct TlsApiStream {
 impl TlsApiStream {
     pub fn connect(host: &str, port: u16, timeout: Duration) -> RosWireResult<Self> {
         let stream = connect_tcp_stream(host, port, timeout, "RouterOS API TLS")?;
-        let server_name = ServerName::try_from(host.to_owned()).map_err(|error| {
+        let server_name_host = tls_server_name_host(host);
+        let server_name = ServerName::try_from(server_name_host.clone()).map_err(|error| {
             Box::new(network_error(format!(
-                "invalid RouterOS API TLS server name `{host}`: {error}",
+                "invalid RouterOS API TLS server name `{server_name_host}`: {error}",
             )))
         })?;
         let mut root_store = RootCertStore::empty();
@@ -55,6 +56,23 @@ impl TlsApiStream {
         }
 
         Ok(Self { inner })
+    }
+}
+
+fn tls_server_name_host(host: &str) -> String {
+    let unbracketed = host
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+        .unwrap_or(host);
+
+    if unbracketed.contains(':') {
+        unbracketed
+            .split_once('%')
+            .map(|(address, _)| address)
+            .unwrap_or(unbracketed)
+            .to_owned()
+    } else {
+        unbracketed.to_owned()
     }
 }
 
@@ -135,7 +153,7 @@ fn network_error(message: impl Into<String>) -> RosWireError {
 
 #[cfg(test)]
 mod tests {
-    use super::{map_io_error, ApiStream, TlsApiStream};
+    use super::{map_io_error, tls_server_name_host, ApiStream, TlsApiStream};
     use crate::error::ErrorCode;
     use std::io::{Cursor, Read, Result, Write};
     use std::net::TcpListener;
@@ -190,6 +208,13 @@ mod tests {
 
         assert_eq!(error.error_code, ErrorCode::NetworkError);
         assert!(error.message.contains("read sentence"));
+    }
+
+    #[test]
+    fn tls_server_name_host_strips_ipv6_zone_identifier() {
+        assert_eq!(tls_server_name_host("fe80::1%en0"), "fe80::1");
+        assert_eq!(tls_server_name_host("[fe80::1%en0]"), "fe80::1");
+        assert_eq!(tls_server_name_host("router.example"), "router.example");
     }
 
     #[test]

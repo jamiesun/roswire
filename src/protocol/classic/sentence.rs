@@ -5,6 +5,7 @@ use std::io::{ErrorKind, Read, Write};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SentenceKind {
     Re,
+    Empty,
     Done,
     Trap,
     Fatal,
@@ -162,6 +163,7 @@ pub fn parse_api_sentence(words: &[String]) -> RosWireResult<ApiSentence> {
 
     let kind = match first.as_str() {
         "!re" => SentenceKind::Re,
+        "!empty" => SentenceKind::Empty,
         "!done" => SentenceKind::Done,
         "!trap" => SentenceKind::Trap,
         "!fatal" => SentenceKind::Fatal,
@@ -293,6 +295,9 @@ mod tests {
             re.attributes.get("name").map(String::as_str),
             Some("ether1"),
         );
+
+        let empty = parse_api_sentence(&["!empty".to_owned()]).expect("!empty should parse");
+        assert_eq!(empty.kind, SentenceKind::Empty);
 
         let done = parse_api_sentence(&["!done".to_owned()]).expect("!done should parse");
         assert_eq!(done.kind, SentenceKind::Done);

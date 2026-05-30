@@ -67,6 +67,31 @@ fn registered_write_command_reaches_connection_resolution() {
 }
 
 #[test]
+fn registered_write_dry_run_outputs_plan_without_connection_resolution() {
+    let temp = tempfile::tempdir().expect("temp dir should be created");
+    let mut cmd = Command::cargo_bin("roswire").expect("binary should compile");
+    cmd.env("ROSWIRE_HOME", temp.path())
+        .args([
+            "ip",
+            "address",
+            "add",
+            "address=192.168.88.2/24",
+            "interface=ether1",
+            "--dry-run",
+            "--json",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::is_empty())
+        .stdout(predicate::str::contains(
+            "\"schema_version\": \"roswire.command.plan.v1\"",
+        ))
+        .stdout(predicate::str::contains("\"will_connect\": false"))
+        .stdout(predicate::str::contains("\"will_modify_routeros\": true"))
+        .stdout(predicate::str::contains("\"error_code\"").not());
+}
+
+#[test]
 fn script_put_dry_run_outputs_plan_without_source_content_or_absolute_path() {
     let temp = tempfile::tempdir().expect("temp dir should be created");
     let source = temp.path().join("bootstrap.rsc");
@@ -150,6 +175,87 @@ fn raw_print_reaches_connection_resolution_without_allow_write() {
 }
 
 #[test]
+fn print_bare_options_dry_run_as_read_only() {
+    let mut cmd = Command::cargo_bin("roswire").expect("binary should compile");
+    cmd.args([
+        "ip",
+        "firewall",
+        "filter",
+        "print",
+        "stats",
+        "--dry-run",
+        "--json",
+    ])
+    .assert()
+    .success()
+    .stderr(predicate::str::is_empty())
+    .stdout(predicate::str::contains(
+        "\"schema_version\": \"roswire.command.plan.v1\"",
+    ))
+    .stdout(predicate::str::contains("\"flags\": ["))
+    .stdout(predicate::str::contains("\"stats\""))
+    .stdout(predicate::str::contains("\"will_modify_routeros\": false"));
+}
+
+#[test]
+fn raw_print_bare_options_do_not_require_allow_write() {
+    let mut cmd = Command::cargo_bin("roswire").expect("binary should compile");
+    cmd.args([
+        "raw",
+        "/ip/firewall/connection/print",
+        "count-only",
+        "--dry-run",
+        "--json",
+    ])
+    .assert()
+    .success()
+    .stderr(predicate::str::is_empty())
+    .stdout(predicate::str::contains(
+        "\"routeros_path\": \"/ip/firewall/connection/print\"",
+    ))
+    .stdout(predicate::str::contains("\"count-only\""))
+    .stdout(predicate::str::contains("\"will_modify_routeros\": false"));
+}
+
+#[test]
+fn unsafe_print_options_are_rejected() {
+    let mut file = Command::cargo_bin("roswire").expect("binary should compile");
+    file.args([
+        "ip",
+        "firewall",
+        "filter",
+        "print",
+        "file=firewall-export",
+        "--dry-run",
+        "--json",
+    ])
+    .assert()
+    .failure()
+    .stdout(predicate::str::is_empty())
+    .stderr(predicate::str::contains("\"error_code\":\"USAGE_ERROR\""))
+    .stderr(predicate::str::contains("not treated as read-only"));
+
+    let mut unknown = Command::cargo_bin("roswire").expect("binary should compile");
+    unknown
+        .args([
+            "ip",
+            "firewall",
+            "filter",
+            "print",
+            "brief",
+            "--dry-run",
+            "--json",
+        ])
+        .assert()
+        .failure()
+        .stdout(predicate::str::is_empty())
+        .stderr(predicate::str::contains("\"error_code\":\"USAGE_ERROR\""))
+        .stderr(predicate::str::contains(
+            "unsupported read-only print option",
+        ));
+}
+
+#[test]
 fn raw_write_requires_allow_write_and_redacts_args() {
     let mut cmd = Command::cargo_bin("roswire").expect("binary should compile");
     cmd.args([
@@ -167,6 +273,28 @@ fn raw_write_requires_allow_write_and_redacts_args() {
     .stderr(predicate::str::contains("super-secret").not())
     .stderr(predicate::str::contains("/Users/example").not())
     .stderr(predicate::str::contains("***REDACTED***"));
+}
+
+#[test]
+fn raw_write_dry_run_outputs_plan_without_allow_write_and_redacts_args() {
+    let mut cmd = Command::cargo_bin("roswire").expect("binary should compile");
+    cmd.args([
+        "raw",
+        "/tool/fetch",
+        "password=super-secret",
+        "src-path=/Users/example/setup.rsc",
+        "--dry-run",
+        "--json",
+    ])
+    .assert()
+    .success()
+    .stderr(predicate::str::is_empty())
+    .stdout(predicate::str::contains(
+        "\"schema_version\": \"roswire.command.plan.v1\"",
+    ))
+    .stdout(predicate::str::contains("super-secret").not())
+    .stdout(predicate::str::contains("/Users/example").not())
+    .stdout(predicate::str::contains("***REDACTED***"));
 }
 
 #[test]
@@ -189,7 +317,7 @@ fn raw_write_with_allow_write_reaches_connection_resolution() {
 }
 
 #[test]
-fn explicit_rest_raw_reports_unsupported_without_network() {
+fn explicit_rest_raw_print_reaches_network_without_leaking_credentials() {
     let credential = generated_credential();
     let mut cmd = Command::cargo_bin("roswire").expect("binary should compile");
     cmd.args([
@@ -208,10 +336,8 @@ fn explicit_rest_raw_reports_unsupported_without_network() {
     .assert()
     .failure()
     .stdout(predicate::str::is_empty())
-    .stderr(predicate::str::contains(
-        "\"error_code\":\"UNSUPPORTED_ACTION\"",
-    ))
-    .stderr(predicate::str::contains("REST mapping unavailable"))
+    .stderr(predicate::str::contains("\"error_code\":\"NETWORK_ERROR\""))
+    .stderr(predicate::str::contains("UNSUPPORTED_ACTION").not())
     .stderr(predicate::str::contains(&credential).not());
 }
 

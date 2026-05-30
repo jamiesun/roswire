@@ -53,7 +53,7 @@ pub fn v6_challenge_login<S: ApiStream + ?Sized>(
                         .unwrap_or_else(|| "RouterOS authentication failed".to_owned()),
                 )));
             }
-            SentenceKind::Re | SentenceKind::Other(_) => continue,
+            SentenceKind::Re | SentenceKind::Empty | SentenceKind::Other(_) => continue,
         }
     };
 
@@ -90,7 +90,7 @@ fn read_login_completion<S: ApiStream + ?Sized>(stream: &mut S) -> RosWireResult
                         .unwrap_or_else(|| "RouterOS authentication failed".to_owned()),
                 )));
             }
-            SentenceKind::Re | SentenceKind::Other(_) => continue,
+            SentenceKind::Re | SentenceKind::Empty | SentenceKind::Other(_) => continue,
         }
     }
 }
