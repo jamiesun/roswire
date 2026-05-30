@@ -46,3 +46,10 @@ webpki-roots = "0.26"
 assert_cmd = "2"
 predicates = "3"
 tempfile = "3"
+
+[profile.release]
+strip = "symbols"
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+opt-level = "z"
