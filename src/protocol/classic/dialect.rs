@@ -73,16 +73,12 @@ impl Dialect for ClassicDialect {
 
     fn command_supported(&self, command: &str) -> bool {
         match (self, command) {
+            // RouterOS v6 has no REST API; everything else is permissive.
+            // The command catalog is enforced by the mapping/schema layer, and
+            // genuine version-specific gaps surface as RouterOS traps that are
+            // enriched through `error_hint` rather than blocked here.
             (Self::V6, "rest") => false,
-            (Self::V6, "system resource print") => true,
-            (Self::V6, "interface print") => true,
-            (Self::V6, "ip address print") => true,
-            (Self::V6, "ip address add") => true,
-            (Self::V6, "ip address set") => true,
-            (Self::V6, "ip address remove") => true,
-            (Self::V6, _) => false,
-            (Self::V7, _) => true,
-            (Self::Unknown, _) => true,
+            _ => true,
         }
     }
 
@@ -219,6 +215,8 @@ mod tests {
     fn command_support_tracks_v6_v7_differences() {
         assert!(!ClassicDialect::V6.command_supported("rest"));
         assert!(ClassicDialect::V6.command_supported("interface print"));
+        // V6 is permissive for any non-REST command; the device surfaces real gaps.
+        assert!(ClassicDialect::V6.command_supported("ip route print"));
         assert!(ClassicDialect::V7.command_supported("rest"));
         assert!(ClassicDialect::Unknown.command_supported("future command"));
     }

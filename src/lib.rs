@@ -13,6 +13,7 @@ use clap::Parser;
 use error::{ErrorContext, RosWireResult};
 use mapping::{ActionKind, ProtocolRequest};
 use protocol::classic::{
+    dialect::{normalize_rows, ClassicDialect, Dialect},
     transport::{ApiStream, TcpApiStream, TlsApiStream},
     ClassicApiSession,
 };
@@ -102,11 +103,12 @@ fn execute_invocation(invocation: args::ParsedInvocation, cli: &Cli) -> RosWireR
         return execute_rest(&invocation, &request, &target, target.port, "rest");
     }
 
+    let dialect = dialect_from_version(&target.routeros_version);
     if target.requested_protocol == "api-ssl" {
-        return execute_api_ssl(&invocation, &request, &target, target.port);
+        return execute_api_ssl(&invocation, &request, &target, target.port, dialect);
     }
 
-    execute_api(&invocation, &request, &target, target.port)
+    execute_api(&invocation, &request, &target, target.port, dialect)
 }
 
 fn validate_raw_safety(
@@ -153,14 +155,21 @@ fn execute_auto(
         execution_context(invocation, target, "unknown"),
     )?;
 
+    let dialect = dialect_from_major(decision.routeros_major);
     match decision.selected_protocol {
         SelectedProtocol::Rest => {
             execute_rest(invocation, request, target, default_port("rest"), "rest")
         }
-        SelectedProtocol::ApiSsl => {
-            execute_api_ssl(invocation, request, target, default_port("api-ssl"))
+        SelectedProtocol::ApiSsl => execute_api_ssl(
+            invocation,
+            request,
+            target,
+            default_port("api-ssl"),
+            dialect,
+        ),
+        SelectedProtocol::Api => {
+            execute_api(invocation, request, target, default_port("api"), dialect)
         }
-        SelectedProtocol::Api => execute_api(invocation, request, target, default_port("api")),
     }
 }
 
@@ -185,13 +194,21 @@ fn execute_api_ssl(
     request: &ProtocolRequest,
     target: &ExecutionTarget,
     port: u16,
+    dialect: ClassicDialect,
 ) -> RosWireResult<()> {
     let context = execution_context(invocation, target, "api-ssl");
     let stream = with_context(
         TlsApiStream::connect(&target.host, port, Duration::from_secs(10)),
         context.clone(),
     )?;
-    execute_classic_stream(stream, request, &target.user, &target.password, context)
+    execute_classic_stream(
+        stream,
+        request,
+        &target.user,
+        &target.password,
+        context,
+        dialect,
+    )
 }
 
 fn execute_api(
@@ -199,13 +216,21 @@ fn execute_api(
     request: &ProtocolRequest,
     target: &ExecutionTarget,
     port: u16,
+    dialect: ClassicDialect,
 ) -> RosWireResult<()> {
     let context = execution_context(invocation, target, "api");
     let stream = with_context(
         TcpApiStream::connect(&target.host, port, Duration::from_secs(10)),
         context.clone(),
     )?;
-    execute_classic_stream(stream, request, &target.user, &target.password, context)
+    execute_classic_stream(
+        stream,
+        request,
+        &target.user,
+        &target.password,
+        context,
+        dialect,
+    )
 }
 
 fn execute_classic_stream<S: ApiStream>(
@@ -214,15 +239,76 @@ fn execute_classic_stream<S: ApiStream>(
     user: &str,
     password: &str,
     context: ErrorContext,
+    dialect: ClassicDialect,
 ) -> RosWireResult<()> {
+    let command_key = classic_command_key(request);
+    if !dialect.command_supported(&command_key) {
+        return Err(Box::new(
+            error::RosWireError::unsupported_action(format!(
+                "RouterOS {} does not support `{command_key}`",
+                dialect.name(),
+            ))
+            .with_context(context),
+        ));
+    }
+
     let mut session = ClassicApiSession::new(stream);
     let selected_protocol = context.selected_protocol.clone();
     with_context(session.login(user, password), context.clone())?;
-    let rows = with_context(session.execute_request(request), context)?;
+    let rows = match session.execute_request(request) {
+        Ok(rows) => rows,
+        Err(error) => {
+            let enriched = enrich_classic_error(error, &dialect);
+            return Err(Box::new((*enriched).with_context(context)));
+        }
+    };
+    let rows = normalize_rows(&dialect, command_key.as_str(), &rows);
     let payload = render_protocol_payload(request, &selected_protocol, &rows)?;
     println!("{payload}");
 
     Ok(())
+}
+
+fn dialect_from_version(version: &str) -> ClassicDialect {
+    match version {
+        "v6" => ClassicDialect::V6,
+        "v7" => ClassicDialect::V7,
+        _ => ClassicDialect::Unknown,
+    }
+}
+
+fn dialect_from_major(major: RouterOsMajor) -> ClassicDialect {
+    match major {
+        RouterOsMajor::V6 => ClassicDialect::V6,
+        RouterOsMajor::V7 => ClassicDialect::V7,
+        RouterOsMajor::Unknown => ClassicDialect::Unknown,
+    }
+}
+
+fn classic_command_key(request: &ProtocolRequest) -> String {
+    let mut key = request.mapping.cli_path.join(" ");
+    if !key.is_empty() {
+        key.push(' ');
+    }
+    key.push_str(request.mapping.action_kind.as_str());
+    key
+}
+
+fn enrich_classic_error(
+    error: Box<error::RosWireError>,
+    dialect: &ClassicDialect,
+) -> Box<error::RosWireError> {
+    if error.hint.is_some() {
+        return error;
+    }
+    match dialect.error_hint(&error.message) {
+        Some(hint) => {
+            let mut error = *error;
+            error.hint = Some(hint);
+            Box::new(error)
+        }
+        None => error,
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -672,19 +758,64 @@ fn unsupported_command_name(invocation: &args::ParsedInvocation) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_probe_error, default_port, execution_context, parse_port, render_protocol_payload,
-        resolve_execution_target_with_env, routeros_major_from_rest_resource,
-        routeros_major_from_version, sanitized_response_value, unsupported_command_name,
-        validate_protocol, validate_raw_safety, validate_routeros_version, with_context,
-        ExecutionTarget,
+        classic_command_key, classify_probe_error, default_port, dialect_from_major,
+        dialect_from_version, enrich_classic_error, execution_context, parse_port,
+        render_protocol_payload, resolve_execution_target_with_env,
+        routeros_major_from_rest_resource, routeros_major_from_version, sanitized_response_value,
+        unsupported_command_name, validate_protocol, validate_raw_safety,
+        validate_routeros_version, with_context, ExecutionTarget,
     };
     use crate::args::{Cli, ParsedInvocation};
     use crate::error::{ErrorCode, RosWireError};
     use crate::mapping::build_protocol_request;
+    use crate::protocol::classic::dialect::ClassicDialect;
     use crate::protocol::{ProbeResult, RouterOsMajor};
     use clap::Parser;
     use std::collections::BTreeMap;
     use std::fs;
+
+    #[test]
+    fn classic_command_key_joins_cli_path_and_action() {
+        let request = build_protocol_request(&ParsedInvocation {
+            path: vec!["ip".to_owned(), "address".to_owned()],
+            action: "print".to_owned(),
+            resolved_args: BTreeMap::new(),
+            flags: Vec::new(),
+        })
+        .expect("request should map");
+
+        assert_eq!(classic_command_key(&request), "ip address print");
+    }
+
+    #[test]
+    fn dialect_resolution_maps_version_and_major() {
+        assert_eq!(dialect_from_version("v6"), ClassicDialect::V6);
+        assert_eq!(dialect_from_version("v7"), ClassicDialect::V7);
+        assert_eq!(dialect_from_version("auto"), ClassicDialect::Unknown);
+        assert_eq!(dialect_from_major(RouterOsMajor::V6), ClassicDialect::V6);
+        assert_eq!(dialect_from_major(RouterOsMajor::V7), ClassicDialect::V7);
+        assert_eq!(
+            dialect_from_major(RouterOsMajor::Unknown),
+            ClassicDialect::Unknown
+        );
+    }
+
+    #[test]
+    fn enrich_classic_error_adds_dialect_hint_when_missing() {
+        let error = Box::new(RosWireError::ros_api_failure("no such item"));
+        let enriched = enrich_classic_error(error, &ClassicDialect::V7);
+        assert_eq!(
+            enriched.hint.as_deref(),
+            Some("refresh item IDs with a print command before retrying")
+        );
+    }
+
+    #[test]
+    fn enrich_classic_error_keeps_existing_hint() {
+        let error = Box::new(RosWireError::ros_api_failure("no such item").with_hint("keep me"));
+        let enriched = enrich_classic_error(error, &ClassicDialect::V7);
+        assert_eq!(enriched.hint.as_deref(), Some("keep me"));
+    }
 
     #[test]
     fn execution_target_uses_cli_values_and_defaults() {
