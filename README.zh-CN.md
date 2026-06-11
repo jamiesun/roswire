@@ -232,7 +232,7 @@ roswire [global-options] <path...> <action> [key=value ...]
 
 本地配置目录默认为 `~/.roswire/`，包含 `config.toml`，本地日志写入 `~/.roswire/logs/` 并最多保留 30 天。密码默认建议保存到本机钥匙链，或通过 secret 后端引用；配置文件只保存 secret 引用。
 
-设备字段对应 profile key：`host`、`user`、`protocol`、`routeros_version`、`transfer`、`port`、`ssh_port`、`ssh_user`、`ssh_key`、`ssh_host_key`、`allow_from`。这些设备字段**不会**来自单设备 `ROS_*` 环境变量；环境变量只作为进程级设置或 secret 后端输入。
+设备字段对应 profile key：`host`、`user`、`protocol`、`routeros_version`、`transfer`、`port`、`ssh_port`、`ssh_user`、`ssh_key`、`ssh_host_key`、`tls_fingerprint`、`allow_from`。这些设备字段**不会**来自单设备 `ROS_*` 环境变量；环境变量只作为进程级设置或 secret 后端输入。
 
 进程级环境变量与 secret 后端变量：
 

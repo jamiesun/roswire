@@ -3,6 +3,7 @@ use crate::error::RosWireResult;
 
 pub mod classic;
 pub mod rest;
+pub mod tls;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RequestedProtocol {

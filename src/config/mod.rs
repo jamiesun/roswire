@@ -81,6 +81,8 @@ pub struct ProfileConfig {
     pub ssh_user: Option<String>,
     pub ssh_key: Option<String>,
     pub ssh_host_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tls_fingerprint: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allow_from: Vec<String>,
     #[serde(default)]
@@ -671,6 +673,13 @@ pub fn inspect_config(
         profile.ssh_host_key.as_deref(),
         None,
     );
+    insert_resolved_field(
+        &mut resolved,
+        "tls_fingerprint",
+        cli.tls_fingerprint.as_deref(),
+        profile.tls_fingerprint.as_deref(),
+        None,
+    );
     let allow_from_cli = (!cli.allow_from.is_empty()).then(|| cli.allow_from.join(","));
     let allow_from_profile = (!profile.allow_from.is_empty()).then(|| profile.allow_from.join(","));
     insert_resolved_field(
@@ -936,6 +945,11 @@ fn handle_config_device(tokens: &[String]) -> RosWireResult<String> {
             "ssh_host_key" | "ssh-host-key" => {
                 profile.ssh_host_key = Some(value);
                 updated_fields.push("ssh_host_key".to_owned());
+            }
+            "tls_fingerprint" | "tls-fingerprint" => {
+                crate::protocol::tls::TlsFingerprint::parse(&value)?;
+                profile.tls_fingerprint = Some(value);
+                updated_fields.push("tls_fingerprint".to_owned());
             }
             "allow_from" | "allow-from" => {
                 profile.allow_from = parse_allow_from_list(&value)?;

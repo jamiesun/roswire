@@ -6,6 +6,7 @@ use crate::protocol::classic::{
     ClassicApiSession,
 };
 use crate::protocol::rest::RestClient;
+use crate::protocol::tls::TlsFingerprint;
 use base64::{engine::general_purpose::STANDARD_NO_PAD as BASE64_NO_PAD, Engine as _};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -240,6 +241,7 @@ struct ControlRuntimeConfig {
     user: String,
     password: String,
     selected_protocol: String,
+    tls_fingerprint: Option<TlsFingerprint>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -418,6 +420,7 @@ impl WorkflowBackend for LiveWorkflowBackend {
                     &self.control.host,
                     self.control.port,
                     Duration::from_secs(10),
+                    self.control.tls_fingerprint.as_ref(),
                 )
                 .map_err(|error| Box::new((*error).clone().with_context(context.clone())))?;
                 execute_classic_control(stream, command, &self.control, context)
@@ -1450,12 +1453,19 @@ fn resolve_control_runtime_config(
     .to_owned();
     let port = explicit_port.unwrap_or_else(|| default_control_port(&selected_protocol));
 
+    let tls_fingerprint = TlsFingerprint::parse_optional(
+        cli.tls_fingerprint
+            .as_deref()
+            .or_else(|| profile.and_then(|profile| profile.tls_fingerprint.as_deref())),
+    )?;
+
     Ok(ControlRuntimeConfig {
         host,
         port,
         user,
         password,
         selected_protocol,
+        tls_fingerprint,
     })
 }
 
@@ -1508,6 +1518,7 @@ fn execute_rest_control(
         control.port,
         &control.user,
         &control.password,
+        control.tls_fingerprint.as_ref(),
     )
     .post_json(path, body)
     .map(|_| ())
@@ -1537,9 +1548,13 @@ fn read_ssh_service(
     match control.selected_protocol.as_str() {
         "rest" => read_rest_ssh_service(control, context),
         "api-ssl" => {
-            let stream =
-                TlsApiStream::connect(&control.host, control.port, Duration::from_secs(10))
-                    .map_err(|error| Box::new((*error).clone().with_context(context.clone())))?;
+            let stream = TlsApiStream::connect(
+                &control.host,
+                control.port,
+                Duration::from_secs(10),
+                control.tls_fingerprint.as_ref(),
+            )
+            .map_err(|error| Box::new((*error).clone().with_context(context.clone())))?;
             read_classic_ssh_service(stream, control, context)
         }
         _ => {
@@ -1559,9 +1574,13 @@ fn apply_ssh_service(
     match control.selected_protocol.as_str() {
         "rest" => apply_rest_ssh_service(control, desired, context),
         "api-ssl" => {
-            let stream =
-                TlsApiStream::connect(&control.host, control.port, Duration::from_secs(10))
-                    .map_err(|error| Box::new((*error).clone().with_context(context.clone())))?;
+            let stream = TlsApiStream::connect(
+                &control.host,
+                control.port,
+                Duration::from_secs(10),
+                control.tls_fingerprint.as_ref(),
+            )
+            .map_err(|error| Box::new((*error).clone().with_context(context.clone())))?;
             apply_classic_ssh_service(stream, control, desired, context)
         }
         _ => {
@@ -1630,6 +1649,7 @@ fn read_rest_ssh_service(
         control.port,
         &control.user,
         &control.password,
+        control.tls_fingerprint.as_ref(),
     );
     let value = client
         .get("/rest/ip/service")
@@ -1648,6 +1668,7 @@ fn apply_rest_ssh_service(
         control.port,
         &control.user,
         &control.password,
+        control.tls_fingerprint.as_ref(),
     );
     client
         .patch_json(
@@ -3964,6 +3985,7 @@ value = "profile-secret"
             user: "admin".to_owned(),
             password: "test-value".to_owned(),
             selected_protocol: "api".to_owned(),
+            tls_fingerprint: None,
         };
 
         execute_classic_control(
@@ -4285,6 +4307,7 @@ value = "profile-secret"
                 user: "api-user".to_owned(),
                 password: "api-secret".to_owned(),
                 selected_protocol: selected_protocol.to_owned(),
+                tls_fingerprint: None,
             },
             default_transfer_policy(),
         )

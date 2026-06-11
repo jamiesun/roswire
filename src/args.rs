@@ -140,6 +140,11 @@ pub struct Cli {
     #[arg(long = "ssh-host-key")]
     pub ssh_host_key: Option<String>,
 
+    /// Expected RouterOS TLS certificate fingerprint (SHA-256, hex or base64,
+    /// optional `sha256:` prefix) to pin api-ssl / REST connections.
+    #[arg(long = "tls-fingerprint")]
+    pub tls_fingerprint: Option<String>,
+
     /// RouterOS SSH service port for transfer workflows.
     #[arg(long = "ssh-port")]
     pub ssh_port: Option<u16>,
