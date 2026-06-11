@@ -3331,6 +3331,17 @@ value = "profile-phrase"
     fn cidr_validation_accepts_narrow_client_ranges() {
         validate_safe_cidr("203.0.113.10/32").expect("single IPv4 host should be safe");
         validate_safe_cidr("2001:db8::1/128").expect("single IPv6 host should be safe");
+        validate_safe_cidr("203.0.113.0/24").expect("IPv4 /24 is the broadest allowed range");
+        validate_safe_cidr("2001:db8::/64").expect("IPv6 /64 is the broadest allowed range");
+    }
+
+    #[test]
+    fn cidr_validation_rejects_ranges_broader_than_threshold() {
+        let v4 = validate_safe_cidr("203.0.113.0/23").expect_err("IPv4 /23 is too broad");
+        assert_eq!(v4.error_code, ErrorCode::SshWhitelistUnsafe);
+
+        let v6 = validate_safe_cidr("2001:db8::/63").expect_err("IPv6 /63 is too broad");
+        assert_eq!(v6.error_code, ErrorCode::SshWhitelistUnsafe);
     }
 
     #[test]

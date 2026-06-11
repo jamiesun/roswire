@@ -199,7 +199,7 @@ impl RosWireError {
             error_code: ErrorCode::SshWhitelistUnsafe,
             message: message.into(),
             hint: Some(
-                "use a narrow /32 IPv4 or /128 IPv6 client CIDR for SSH transfer".to_owned(),
+                "use a client CIDR no broader than /24 (IPv4) or /64 (IPv6); prefer /32 or /128 for a single host".to_owned(),
             ),
             context: ErrorContext::default(),
             exit_code: 2,
