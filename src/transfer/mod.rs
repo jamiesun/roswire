@@ -2512,15 +2512,18 @@ fn read_env_map() -> BTreeMap<String, String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_plan_for_env, copy_with_sha256, default_transfer_policy, execute_classic_control,
-        execute_file_workflow, handle_transfer_for_env, host_key_matches, load_selected_profile,
-        merge_ssh_allow_list, parse_port, parse_transfer_command, resolve_control_runtime_config,
-        resolve_ssh_key_passphrase, resolve_ssh_runtime_config, resolve_ssh_transfer_summary,
-        resolve_transfer_backend, routeros_bool, selected_context, sftp_or_scp_fallback,
-        sha256_fingerprint, ssh_service_snapshot_from_fields, ssh_service_snapshot_from_json,
-        transfer_policy, validate_safe_cidr, ControlCommand, ControlRuntimeConfig,
-        LiveWorkflowBackend, SshRuntimeConfig, SshServiceSnapshot, TransferCommand,
-        WorkflowBackend, DEFAULT_CONNECT_TIMEOUT_SECONDS, MAX_TRANSFER_BYTES,
+        build_plan_for_env, copy_with_sha256, default_control_port, default_transfer_policy,
+        execute_classic_control, execute_file_workflow, file_name, handle_transfer_for_env,
+        host_key_matches, load_selected_profile, merge_ssh_allow_list, parse_address_list,
+        parse_port, parse_transfer_command, redact_local_path, redact_remote_path,
+        resolve_control_runtime_config, resolve_ssh_key_passphrase, resolve_ssh_runtime_config,
+        resolve_ssh_transfer_summary, resolve_transfer_backend, routeros_bool,
+        routeros_bool_is_true, selected_context, sftp_or_scp_fallback, sha256_fingerprint,
+        ssh_service_snapshot_from_fields, ssh_service_snapshot_from_json, temporary_local_path,
+        temporary_remote_path, transfer_policy, validate_control_protocol, validate_safe_cidr,
+        ControlCommand, ControlRuntimeConfig, LiveWorkflowBackend, SshRuntimeConfig,
+        SshServiceSnapshot, TransferCommand, WorkflowBackend, DEFAULT_CONNECT_TIMEOUT_SECONDS,
+        MAX_TRANSFER_BYTES,
     };
     use crate::args::{Cli, TransferIfExists};
     use crate::error::{ErrorCode, ErrorContext};
@@ -3363,6 +3366,106 @@ value = "profile-phrase"
 
         let v6 = validate_safe_cidr("2001:db8::/63").expect_err("IPv6 /63 is too broad");
         assert_eq!(v6.error_code, ErrorCode::SshWhitelistUnsafe);
+    }
+
+    #[test]
+    fn validate_control_protocol_accepts_known_and_rejects_unknown() {
+        for value in ["auto", "api", "api-ssl", "rest"] {
+            validate_control_protocol(value).expect("known control protocol");
+        }
+        let error = validate_control_protocol("telnet").expect_err("unknown should fail");
+        assert_eq!(error.error_code, ErrorCode::UsageError);
+    }
+
+    #[test]
+    fn default_control_port_maps_protocol_to_port() {
+        assert_eq!(default_control_port("api-ssl"), 8729);
+        assert_eq!(default_control_port("rest"), 443);
+        assert_eq!(default_control_port("api"), 8728);
+        assert_eq!(default_control_port("auto"), 8728);
+    }
+
+    #[test]
+    fn temporary_paths_use_expected_suffixes() {
+        assert_eq!(
+            temporary_remote_path("flash/setup.rsc"),
+            "flash/setup.rsc.roswire.tmp"
+        );
+        assert_eq!(temporary_remote_path("flash/dir/"), "flash/dir.roswire.tmp");
+        assert!(temporary_local_path("/tmp/out.rsc").ends_with(".part"));
+    }
+
+    #[test]
+    fn redact_paths_mask_absolute_local_and_sensitive_segments() {
+        assert_eq!(
+            redact_local_path("/Users/example/setup.rsc"),
+            "***REDACTED***/setup.rsc"
+        );
+        assert_eq!(
+            redact_local_path("relative/setup.rsc"),
+            "relative/setup.rsc"
+        );
+        assert_eq!(
+            redact_remote_path("flash/password/config.rsc"),
+            "flash/***REDACTED***/config.rsc"
+        );
+    }
+
+    #[test]
+    fn file_name_extracts_last_segment_with_fallback() {
+        assert_eq!(file_name("flash/dir/config.rsc"), "config.rsc");
+        assert_eq!(file_name("config.rsc"), "config.rsc");
+        assert_eq!(file_name(""), "roswire-file");
+    }
+
+    #[test]
+    fn routeros_bool_round_trips_truthy_values() {
+        assert_eq!(routeros_bool(true), "yes");
+        assert_eq!(routeros_bool(false), "no");
+        assert!(routeros_bool_is_true("yes"));
+        assert!(routeros_bool_is_true("TRUE"));
+        assert!(routeros_bool_is_true(" 1 "));
+        assert!(!routeros_bool_is_true("no"));
+        assert!(!routeros_bool_is_true("disabled"));
+    }
+
+    #[test]
+    fn parse_address_list_trims_and_drops_empty() {
+        assert_eq!(
+            parse_address_list(" 203.0.113.10/32 , ,203.0.113.11/32 "),
+            vec!["203.0.113.10/32", "203.0.113.11/32"]
+        );
+        assert!(parse_address_list("  ,  ").is_empty());
+    }
+
+    #[test]
+    fn ssh_service_snapshot_parses_array_and_rejects_unexpected_shape() {
+        let value = serde_json::json!([
+            { ".id": "*7", "name": "ssh", "disabled": "true", "address": "203.0.113.10/32,198.51.100.4/32" }
+        ]);
+        let snapshot = ssh_service_snapshot_from_json(&value).expect("ssh service should parse");
+        assert_eq!(snapshot.id.as_deref(), Some("*7"));
+        assert!(snapshot.disabled);
+        assert_eq!(
+            snapshot.address,
+            vec!["203.0.113.10/32".to_owned(), "198.51.100.4/32".to_owned()]
+        );
+
+        let missing = serde_json::json!([{ "name": "www" }]);
+        assert_eq!(
+            ssh_service_snapshot_from_json(&missing)
+                .expect_err("missing ssh entry")
+                .error_code,
+            ErrorCode::RosApiFailure
+        );
+
+        let bad_shape = serde_json::json!("not-an-object");
+        assert_eq!(
+            ssh_service_snapshot_from_json(&bad_shape)
+                .expect_err("unexpected shape")
+                .error_code,
+            ErrorCode::RosApiFailure
+        );
     }
 
     #[test]

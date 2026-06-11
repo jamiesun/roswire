@@ -1781,6 +1781,83 @@ retention_days = 7
     }
 
     #[test]
+    fn normalize_protocol_accepts_known_values_and_rejects_others() {
+        for value in ["auto", "api", "api-ssl", "rest"] {
+            assert_eq!(normalize_protocol(value).expect("known protocol"), value);
+        }
+        let error = normalize_protocol("telnet").expect_err("unknown protocol should fail");
+        assert_eq!(error.error_code, ErrorCode::UsageError);
+    }
+
+    #[test]
+    fn normalize_routeros_version_and_transfer_validate_inputs() {
+        for value in ["auto", "v6", "v7"] {
+            assert_eq!(
+                normalize_routeros_version(value).expect("known version"),
+                value
+            );
+        }
+        assert!(normalize_routeros_version("v8").is_err());
+
+        assert_eq!(normalize_transfer("ssh").expect("ssh is valid"), "ssh");
+        assert!(normalize_transfer("ftp").is_err());
+    }
+
+    #[test]
+    fn parse_port_accepts_valid_and_rejects_invalid() {
+        assert_eq!(parse_port("8728").expect("valid port"), 8728);
+        let error = parse_port("not-a-port").expect_err("invalid port should fail");
+        assert_eq!(error.error_code, ErrorCode::UsageError);
+        assert!(parse_port("70000").is_err());
+    }
+
+    #[test]
+    fn parse_allow_from_list_splits_and_rejects_empty() {
+        let parsed = parse_allow_from_list(" 203.0.113.10/32 , 203.0.113.11/32 ")
+            .expect("non-empty list should parse");
+        assert_eq!(parsed, vec!["203.0.113.10/32", "203.0.113.11/32"]);
+
+        let error = parse_allow_from_list("  ,  ").expect_err("empty list should fail");
+        assert_eq!(error.error_code, ErrorCode::UsageError);
+    }
+
+    #[test]
+    fn read_env_secret_returns_value_or_structured_error() {
+        let env = BTreeMap::from([("ROSWIRE_SECRET".to_owned(), "value".to_owned())]);
+        assert_eq!(
+            read_env_secret(&env, "ROSWIRE_SECRET").expect("present secret"),
+            "value"
+        );
+
+        let missing = read_env_secret(&env, "ROSWIRE_ABSENT").expect_err("absent secret");
+        assert!(has_error_code(&missing, ErrorCode::SecretNotFound));
+
+        let blank = BTreeMap::from([("ROSWIRE_BLANK".to_owned(), String::new())]);
+        let blank_error = read_env_secret(&blank, "ROSWIRE_BLANK").expect_err("blank secret");
+        assert!(has_error_code(&blank_error, ErrorCode::SecretNotFound));
+    }
+
+    #[test]
+    fn encrypted_master_key_resolves_default_and_custom_env() {
+        let env = BTreeMap::from([
+            ("ROSWIRE_MASTER_KEY".to_owned(), "default-key".to_owned()),
+            ("ROSWIRE_CUSTOM_KEY".to_owned(), "custom-key".to_owned()),
+        ]);
+        assert_eq!(
+            encrypted_master_key(&env, None).expect("default key"),
+            "default-key"
+        );
+        assert_eq!(
+            encrypted_master_key(&env, Some("ROSWIRE_CUSTOM_KEY")).expect("custom key"),
+            "custom-key"
+        );
+
+        let error = encrypted_master_key(&env, Some("ROSWIRE_ABSENT_KEY"))
+            .expect_err("absent master key should fail");
+        assert!(has_error_code(&error, ErrorCode::SecretBackendUnavailable));
+    }
+
+    #[test]
     fn inspect_output_never_contains_secret_values() {
         let cli = Cli::try_parse_from(["roswire", "interface", "print"]).expect("cli should parse");
         let config = ConfigFile {
