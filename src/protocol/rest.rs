@@ -1,5 +1,6 @@
 use crate::error::{RosWireError, RosWireResult};
 use crate::mapping::{ActionKind, ProtocolRequest, RestMethod};
+use crate::protocol::tls::{client_config, TlsFingerprint};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use serde_json::Value;
 use std::time::Duration;
@@ -13,8 +14,23 @@ pub struct RestClient {
 }
 
 impl RestClient {
-    pub fn https(host: &str, port: u16, user: &str, password: &str) -> Self {
-        Self::with_base_url(https_base_url(host, port), user, password)
+    pub fn https(
+        host: &str,
+        port: u16,
+        user: &str,
+        password: &str,
+        fingerprint: Option<&TlsFingerprint>,
+    ) -> Self {
+        let agent = ureq::AgentBuilder::new()
+            .timeout(Duration::from_secs(10))
+            .tls_config(client_config(fingerprint))
+            .build();
+        Self {
+            base_url: trim_trailing_slash(https_base_url(host, port)),
+            user: user.to_owned(),
+            password: password.to_owned(),
+            agent,
+        }
     }
 
     pub fn with_base_url(base_url: impl Into<String>, user: &str, password: &str) -> Self {

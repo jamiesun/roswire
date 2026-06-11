@@ -1,9 +1,9 @@
 use crate::error::{RosWireError, RosWireResult};
-use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
+use crate::protocol::tls::{client_config, TlsFingerprint};
+use rustls::{ClientConnection, StreamOwned};
 use rustls_pki_types::ServerName;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
-use std::sync::Arc;
 use std::time::Duration;
 
 pub trait ApiStream: Read + Write + Send {}
@@ -28,7 +28,12 @@ pub struct TlsApiStream {
 }
 
 impl TlsApiStream {
-    pub fn connect(host: &str, port: u16, timeout: Duration) -> RosWireResult<Self> {
+    pub fn connect(
+        host: &str,
+        port: u16,
+        timeout: Duration,
+        fingerprint: Option<&TlsFingerprint>,
+    ) -> RosWireResult<Self> {
         let stream = connect_tcp_stream(host, port, timeout, "RouterOS API TLS")?;
         let server_name_host = tls_server_name_host(host);
         let server_name = ServerName::try_from(server_name_host.clone()).map_err(|error| {
@@ -36,12 +41,8 @@ impl TlsApiStream {
                 "invalid RouterOS API TLS server name `{server_name_host}`: {error}",
             )))
         })?;
-        let mut root_store = RootCertStore::empty();
-        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        let config = ClientConfig::builder()
-            .with_root_certificates(root_store)
-            .with_no_client_auth();
-        let connection = ClientConnection::new(Arc::new(config), server_name).map_err(|error| {
+        let config = client_config(fingerprint);
+        let connection = ClientConnection::new(config, server_name).map_err(|error| {
             Box::new(tls_error(format!(
                 "failed to initialize RouterOS API TLS connection: {error}",
             )))
@@ -235,7 +236,8 @@ mod tests {
                 .expect("fixture response should write");
         });
 
-        let error = match TlsApiStream::connect("127.0.0.1", port, Duration::from_millis(500)) {
+        let error = match TlsApiStream::connect("127.0.0.1", port, Duration::from_millis(500), None)
+        {
             Ok(_) => panic!("plain TCP server should fail TLS handshake"),
             Err(error) => error,
         };

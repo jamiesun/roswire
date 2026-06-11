@@ -52,6 +52,7 @@ fn config_device_add_and_inspect_work() {
             "ssh_user=backup",
             "ssh_key=/Users/example/.ssh/id_ed25519",
             "ssh_host_key=SHA256:test",
+            "tls_fingerprint=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             "allow_from=203.0.113.10/32,203.0.113.11/32",
             "--json",
         ],
@@ -80,8 +81,34 @@ fn config_device_add_and_inspect_work() {
     .stdout(predicate::str::contains("/Users/example/.ssh").not())
     .stdout(predicate::str::contains("ssh_host_key"))
     .stdout(predicate::str::contains("SHA256:test"))
+    .stdout(predicate::str::contains("tls_fingerprint"))
+    .stdout(predicate::str::contains(
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    ))
     .stdout(predicate::str::contains("allow_from"))
     .stdout(predicate::str::contains("203.0.113.10/32,203.0.113.11/32"));
+}
+
+#[test]
+fn config_device_rejects_invalid_tls_fingerprint() {
+    let temp = tempfile::tempdir().expect("temp dir should be created");
+
+    run(&temp, &["config", "init", "--json"]).success();
+    run(
+        &temp,
+        &[
+            "config",
+            "device",
+            "add",
+            "studio",
+            "host=10.189.189.1",
+            "user=master",
+            "tls_fingerprint=not-a-fingerprint",
+            "--json",
+        ],
+    )
+    .failure()
+    .stderr(predicate::str::contains("invalid TLS fingerprint"));
 }
 
 #[test]

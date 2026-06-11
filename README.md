@@ -232,7 +232,7 @@ Configuration precedence is intentionally simple:
 
 The local configuration directory is `~/.roswire/` by default. It contains `config.toml`, local logs under `~/.roswire/logs/`, and keeps logs for up to 30 days. Passwords should preferably be stored in the local keychain or referenced through a secret backend; config files should store secret references only.
 
-Device fields map to these profile keys: `host`, `user`, `protocol`, `routeros_version`, `transfer`, `port`, `ssh_port`, `ssh_user`, `ssh_key`, `ssh_host_key`, and `allow_from`. These device fields do **not** come from single-device `ROS_*` environment variables. Environment variables are process-level settings or secret-backend inputs only.
+Device fields map to these profile keys: `host`, `user`, `protocol`, `routeros_version`, `transfer`, `port`, `ssh_port`, `ssh_user`, `ssh_key`, `ssh_host_key`, `tls_fingerprint`, and `allow_from`. These device fields do **not** come from single-device `ROS_*` environment variables. Environment variables are process-level settings or secret-backend inputs only.
 
 Process-level environment variables and secret-backend variables:
 
