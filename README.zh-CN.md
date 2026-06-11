@@ -240,7 +240,7 @@ roswire [global-options] <path...> <action> [key=value ...]
 | --- | --- |
 | `ROSWIRE_HOME` | 覆盖默认 `~/.roswire` 目录，主要用于测试或便携环境 |
 | `ROSWIRE_DEBUG` | 启用脱敏 debug 诊断输出 |
-| `ROSWIRE_MASTER_KEY` | encrypted secret 默认 master key；也可用 secret 的 `key_id` 指向其它变量 |
+| `ROSWIRE_MASTER_KEY` | encrypted secret 默认 master key；也可用 secret 的 `key_id` 指向其它变量。加密 secret 使用 Argon2id + 随机 per-secret salt，但仍应使用高熵 master key |
 | profile secret `type=env` 指向的自定义变量 | 例如 `ROSWIRE_STUDIO_PASSWORD`，只作为 secret 后端读取，不参与设备字段优先级 |
 
 密码和 SSH passphrase 使用 profile secret：`password`、`ssh_password`、`ssh_key_passphrase`。
