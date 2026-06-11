@@ -386,6 +386,47 @@ mod tests {
     use std::fs;
 
     #[test]
+    fn error_code_name_serializes_screaming_snake_case() {
+        assert_eq!(error_code_name(ErrorCode::TlsError), "TLS_ERROR");
+        assert_eq!(error_code_name(ErrorCode::AuthFailed), "AUTH_FAILED");
+        assert_eq!(error_code_name(ErrorCode::RosApiFailure), "ROS_API_FAILURE");
+    }
+
+    #[test]
+    fn remote_error_reports_structured_failure() {
+        let error = RosWireError::tls("bad certificate");
+        let remote = remote_error("api-ssl", &error);
+
+        assert_eq!(remote.status, "error");
+        assert_eq!(remote.selected_protocol, "api-ssl");
+        assert_eq!(remote.error_code.as_deref(), Some("TLS_ERROR"));
+        assert_eq!(remote.message.as_deref(), Some("bad certificate"));
+        assert_eq!(remote.warnings, vec!["TLS_ERROR".to_owned()]);
+        assert!(remote.routeros_version.is_none());
+    }
+
+    #[test]
+    fn local_routeros_version_hint_prefers_cli_value() {
+        let cli =
+            Cli::try_parse_from(["roswire", "--routeros-version", "v7", "interface", "print"])
+                .expect("cli should parse");
+        let env = BTreeMap::new();
+
+        assert_eq!(
+            local_routeros_version_hint(&cli, &env, None).as_deref(),
+            Some("v7")
+        );
+    }
+
+    #[test]
+    fn local_routeros_version_hint_is_none_without_cli_or_config() {
+        let cli = Cli::try_parse_from(["roswire", "interface", "print"]).expect("cli should parse");
+        let env = BTreeMap::new();
+
+        assert!(local_routeros_version_hint(&cli, &env, None).is_none());
+    }
+
+    #[test]
     fn local_dependencies_are_stable() {
         let dependencies = local_dependencies();
         assert_eq!(
