@@ -32,7 +32,7 @@ impl TlsApiStream {
         let stream = connect_tcp_stream(host, port, timeout, "RouterOS API TLS")?;
         let server_name_host = tls_server_name_host(host);
         let server_name = ServerName::try_from(server_name_host.clone()).map_err(|error| {
-            Box::new(network_error(format!(
+            Box::new(tls_error(format!(
                 "invalid RouterOS API TLS server name `{server_name_host}`: {error}",
             )))
         })?;
@@ -42,14 +42,14 @@ impl TlsApiStream {
             .with_root_certificates(root_store)
             .with_no_client_auth();
         let connection = ClientConnection::new(Arc::new(config), server_name).map_err(|error| {
-            Box::new(network_error(format!(
+            Box::new(tls_error(format!(
                 "failed to initialize RouterOS API TLS connection: {error}",
             )))
         })?;
         let mut inner = StreamOwned::new(connection, stream);
         while inner.conn.is_handshaking() {
             inner.conn.complete_io(&mut inner.sock).map_err(|error| {
-                Box::new(network_error(format!(
+                Box::new(tls_error(format!(
                     "RouterOS API TLS handshake failed at {host}:{port}: {error}",
                 )))
             })?;
@@ -151,6 +151,10 @@ fn network_error(message: impl Into<String>) -> RosWireError {
     RosWireError::network(message)
 }
 
+fn tls_error(message: impl Into<String>) -> RosWireError {
+    RosWireError::tls(message)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{map_io_error, tls_server_name_host, ApiStream, TlsApiStream};
@@ -218,7 +222,7 @@ mod tests {
     }
 
     #[test]
-    fn tls_handshake_failure_maps_to_network_error() {
+    fn tls_handshake_failure_maps_to_tls_error() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("listener should bind");
         let port = listener
             .local_addr()
@@ -237,7 +241,7 @@ mod tests {
         };
         handle.join().expect("server thread should finish");
 
-        assert_eq!(error.error_code, ErrorCode::NetworkError);
+        assert_eq!(error.error_code, ErrorCode::TlsError);
         assert!(error.message.contains("TLS handshake failed"));
     }
 }

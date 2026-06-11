@@ -624,6 +624,7 @@ pub struct ErrorContext {
 | `SECRET_DECRYPT_FAILED` | 本地加密 secret 解密失败 | `3` |
 | `AUTH_FAILED` | RouterOS 认证失败 | `3` |
 | `NETWORK_ERROR` | TCP/TLS/HTTP 连接失败 | `4` |
+| `TLS_ERROR` | TLS 协商/证书校验失败（auto 模式不会因此静默降级到明文 api） | `4` |
 | `ROS_API_FAILURE` | RouterOS 返回 trap/error | `1` |
 | `UNSUPPORTED_ACTION` | 当前 action 无映射或未实现 | `2` |
 | `SSH_SERVICE_UNAVAILABLE` | RouterOS SSH 服务未启用，且用户未允许自动开启 | `2` |

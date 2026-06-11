@@ -538,6 +538,7 @@ impl LiveProtocolProbe<'_> {
 fn classify_probe_error(error: &error::RosWireError) -> ProbeResult {
     match error.error_code {
         error::ErrorCode::AuthFailed => ProbeResult::AuthFailed,
+        error::ErrorCode::TlsError => ProbeResult::TlsFailure,
         _ => ProbeResult::NetworkFailure,
     }
 }

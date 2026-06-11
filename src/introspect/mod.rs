@@ -250,6 +250,20 @@ fn explain_error_payload(tokens: &[String]) -> RosWireResult<String> {
                 "run `roswire commands --json` for command discovery".to_owned(),
             ],
         },
+        "TLS_ERROR" => ExplainErrorPayload {
+            schema_version: "roswire.error.explain.v1",
+            error_code: code,
+            summary: "TLS negotiation or certificate verification with RouterOS failed.".to_owned(),
+            common_causes: vec![
+                "RouterOS presents a self-signed certificate not trusted by public CAs".to_owned(),
+                "certificate fingerprint does not match the pinned tls_fingerprint".to_owned(),
+            ],
+            suggested_next_steps: vec![
+                "pin the certificate with --tls-fingerprint or profile tls_fingerprint".to_owned(),
+                "install a trusted certificate on RouterOS, or select an explicit --protocol"
+                    .to_owned(),
+            ],
+        },
         "SSH_RESTORE_FAILED" => ExplainErrorPayload {
             schema_version: "roswire.error.explain.v1",
             error_code: code,

@@ -17,6 +17,7 @@ pub enum ErrorCode {
     RemoteSchemaStale,
     AuthFailed,
     NetworkError,
+    TlsError,
     RosApiFailure,
     SecretBackendUnavailable,
     SecretNotFound,
@@ -113,6 +114,18 @@ impl RosWireError {
             error_code: ErrorCode::NetworkError,
             message: message.into(),
             hint: None,
+            context: ErrorContext::default(),
+            exit_code: 4,
+        }
+    }
+
+    pub fn tls(message: impl Into<String>) -> Self {
+        Self {
+            error_code: ErrorCode::TlsError,
+            message: message.into(),
+            hint: Some(
+                "verify the RouterOS TLS certificate (it is self-signed by default); pin it with --tls-fingerprint / profile tls_fingerprint, install a trusted certificate, or select an explicit --protocol".to_owned(),
+            ),
             context: ErrorContext::default(),
             exit_code: 4,
         }
@@ -515,6 +528,11 @@ mod tests {
         let network = RosWireError::network("unreachable");
         assert_eq!(network.error_code, ErrorCode::NetworkError);
         assert_eq!(network.exit_code(), 4);
+
+        let tls = RosWireError::tls("bad certificate");
+        assert_eq!(tls.error_code, ErrorCode::TlsError);
+        assert_eq!(tls.exit_code(), 4);
+        assert!(tls.hint.is_some());
 
         let api = RosWireError::ros_api_failure("trap");
         assert_eq!(api.error_code, ErrorCode::RosApiFailure);
