@@ -81,11 +81,34 @@ impl RestClient {
                 status,
                 response.into_string().unwrap_or_default(),
             ))),
-            Err(ureq::Error::Transport(error)) => Err(Box::new(RosWireError::network(format!(
-                "RouterOS REST transport error: {error}",
-            )))),
+            Err(ureq::Error::Transport(error)) => Err(Box::new(map_transport_error(&error))),
         }
     }
+}
+
+fn map_transport_error(error: &ureq::Transport) -> RosWireError {
+    let message = error.to_string();
+    if looks_like_tls_error(&message) {
+        RosWireError::tls(format!("RouterOS REST TLS error: {message}"))
+    } else {
+        RosWireError::network(format!("RouterOS REST transport error: {message}"))
+    }
+}
+
+fn looks_like_tls_error(message: &str) -> bool {
+    let lowercase = message.to_ascii_lowercase();
+    [
+        "tls",
+        "certificate",
+        "cert ",
+        "handshake",
+        "invalid peer",
+        "unknownissuer",
+        "self-signed",
+        "self signed",
+    ]
+    .iter()
+    .any(|needle| lowercase.contains(needle))
 }
 
 struct RestExecutionRequest {
@@ -770,7 +793,7 @@ mod tests {
     }
 
     #[test]
-    fn tls_handshake_failure_maps_to_network_error() {
+    fn tls_handshake_failure_maps_to_tls_error() {
         let server = TestServer::responding_with(200, "application/json", r#"{}"#);
         let credential = test_credential();
         let client = RestClient::with_base_url(
@@ -783,7 +806,7 @@ mod tests {
             .system_resource()
             .expect_err("TLS should fail against plain HTTP");
 
-        assert_eq!(error.error_code, ErrorCode::NetworkError);
+        assert_eq!(error.error_code, ErrorCode::TlsError);
     }
 
     #[test]

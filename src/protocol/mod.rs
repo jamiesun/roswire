@@ -33,6 +33,7 @@ pub enum ProbeResult {
         rest_supported_for_action: bool,
     },
     NetworkFailure,
+    TlsFailure,
     AuthFailed,
 }
 
@@ -81,6 +82,9 @@ fn explicit_route(
         ProbeResult::AuthFailed => Err(Box::new(RosWireError::auth_failed(
             "authentication failed while probing protocol",
         ))),
+        ProbeResult::TlsFailure => Err(Box::new(RosWireError::tls(
+            "TLS negotiation failed for the requested protocol",
+        ))),
         ProbeResult::NetworkFailure => Err(Box::new(RosWireError::network(
             "unable to reach RouterOS service for requested protocol",
         ))),
@@ -91,6 +95,11 @@ fn auto_route(
     action_has_rest_mapping: bool,
     probe: &impl ProtocolProbe,
 ) -> RosWireResult<RouteDecision> {
+    // Track TLS negotiation failures so that a broken/untrusted TLS service is
+    // never silently downgraded to the plaintext `api` protocol (which would
+    // send credentials in cleartext). Plain connection failures (port closed,
+    // timeout) may still fall through to the next candidate.
+    let mut saw_tls_failure = false;
     for candidate in [
         SelectedProtocol::Rest,
         SelectedProtocol::ApiSsl,
@@ -101,6 +110,10 @@ fn auto_route(
                 return Err(Box::new(RosWireError::auth_failed(
                     "authentication failed during protocol auto-detection",
                 )));
+            }
+            ProbeResult::TlsFailure => {
+                saw_tls_failure = true;
+                continue;
             }
             ProbeResult::NetworkFailure => continue,
             ProbeResult::Success {
@@ -118,6 +131,12 @@ fn auto_route(
                     continue;
                 }
 
+                if candidate == SelectedProtocol::Api && saw_tls_failure {
+                    return Err(Box::new(RosWireError::tls(
+                        "refusing to fall back to the plaintext api protocol after a TLS negotiation failure; credentials would be sent in cleartext",
+                    )));
+                }
+
                 return Ok(RouteDecision {
                     requested_protocol: RequestedProtocol::Auto,
                     selected_protocol: candidate,
@@ -125,6 +144,12 @@ fn auto_route(
                 });
             }
         }
+    }
+
+    if saw_tls_failure {
+        return Err(Box::new(RosWireError::tls(
+            "all secure protocol candidates failed TLS negotiation during auto-detection",
+        )));
     }
 
     Err(Box::new(RosWireError::network(
@@ -277,6 +302,79 @@ mod tests {
         let network_error = route_protocol(RequestedProtocol::ApiSsl, true, None, &network_probe)
             .expect_err("explicit network failure should fail");
         assert_eq!(network_error.error_code, ErrorCode::NetworkError);
+    }
+
+    #[test]
+    fn auto_refuses_plaintext_downgrade_after_tls_failure() {
+        let probe = FakeProbe {
+            responses: BTreeMap::from([
+                (SelectedProtocol::Rest, ProbeResult::TlsFailure),
+                (SelectedProtocol::ApiSsl, ProbeResult::TlsFailure),
+                (
+                    SelectedProtocol::Api,
+                    ProbeResult::Success {
+                        routeros_major: RouterOsMajor::V7,
+                        rest_supported_for_action: false,
+                    },
+                ),
+            ]),
+        };
+
+        let error = route_protocol(RequestedProtocol::Auto, true, None, &probe)
+            .expect_err("tls failure must not silently downgrade to plaintext api");
+        assert_eq!(error.error_code, ErrorCode::TlsError);
+    }
+
+    #[test]
+    fn auto_still_falls_back_to_api_on_pure_connection_failures() {
+        let probe = FakeProbe {
+            responses: BTreeMap::from([
+                (SelectedProtocol::Rest, ProbeResult::NetworkFailure),
+                (SelectedProtocol::ApiSsl, ProbeResult::NetworkFailure),
+                (
+                    SelectedProtocol::Api,
+                    ProbeResult::Success {
+                        routeros_major: RouterOsMajor::V7,
+                        rest_supported_for_action: false,
+                    },
+                ),
+            ]),
+        };
+
+        let decision = route_protocol(RequestedProtocol::Auto, true, None, &probe)
+            .expect("plain api should remain available when no TLS service was present");
+        assert_eq!(decision.selected_protocol, SelectedProtocol::Api);
+    }
+
+    #[test]
+    fn auto_uses_api_ssl_when_rest_tls_fails_but_api_ssl_succeeds() {
+        let probe = FakeProbe {
+            responses: BTreeMap::from([
+                (SelectedProtocol::Rest, ProbeResult::TlsFailure),
+                (
+                    SelectedProtocol::ApiSsl,
+                    ProbeResult::Success {
+                        routeros_major: RouterOsMajor::V7,
+                        rest_supported_for_action: false,
+                    },
+                ),
+            ]),
+        };
+
+        let decision = route_protocol(RequestedProtocol::Auto, true, None, &probe)
+            .expect("a working api-ssl should still be selected after a rest TLS failure");
+        assert_eq!(decision.selected_protocol, SelectedProtocol::ApiSsl);
+    }
+
+    #[test]
+    fn explicit_tls_failure_maps_to_tls_error() {
+        let probe = FakeProbe {
+            responses: BTreeMap::from([(SelectedProtocol::ApiSsl, ProbeResult::TlsFailure)]),
+        };
+
+        let error = route_protocol(RequestedProtocol::ApiSsl, true, None, &probe)
+            .expect_err("explicit tls failure should surface");
+        assert_eq!(error.error_code, ErrorCode::TlsError);
     }
 
     #[test]
