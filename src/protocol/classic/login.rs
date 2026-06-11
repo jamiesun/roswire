@@ -3,46 +3,67 @@ use super::transport::ApiStream;
 use crate::error::{RosWireError, RosWireResult};
 use md5::{Digest, Md5};
 
+enum LoginOutcome {
+    Authenticated,
+    Challenge(Vec<u8>),
+}
+
+/// Logs in over the RouterOS native API, transparently handling both the
+/// modern (RouterOS 6.43+/v7) and legacy (pre-6.43) login flows.
+///
+/// RouterOS 6.43+ accepts the username and password in the first `/login`
+/// sentence and replies `!done`. Pre-6.43 firmware ignores the supplied
+/// password and instead replies `!done` with a `=ret=<challenge>` attribute;
+/// in that case we complete the MD5 challenge-response handshake.
 pub fn login<S: ApiStream + ?Sized>(
     stream: &mut S,
     user: &str,
     password: &str,
 ) -> RosWireResult<()> {
-    modern_login(stream, user, password)
+    write_sentence(
+        stream,
+        &[
+            "/login".to_owned(),
+            format!("=name={user}"),
+            format!("=password={password}"),
+        ],
+    )?;
+
+    match read_login_outcome(stream)? {
+        LoginOutcome::Authenticated => Ok(()),
+        LoginOutcome::Challenge(challenge) => {
+            let response = v6_challenge_response(password, &challenge);
+            write_sentence(
+                stream,
+                &[
+                    "/login".to_owned(),
+                    format!("=name={user}"),
+                    format!("=response=00{response}"),
+                ],
+            )?;
+            read_login_completion(stream)
+        }
+    }
 }
 
-pub fn modern_login<S: ApiStream + ?Sized>(
-    stream: &mut S,
-    user: &str,
-    password: &str,
-) -> RosWireResult<()> {
-    let words = vec![
-        "/login".to_owned(),
-        format!("=name={user}"),
-        format!("=password={password}"),
-    ];
-    write_sentence(stream, &words)?;
-    read_login_completion(stream)
+pub fn v6_challenge_response(password: &str, challenge: &[u8]) -> String {
+    let mut hasher = Md5::new();
+    hasher.update([0]);
+    hasher.update(password.as_bytes());
+    hasher.update(challenge);
+    encode_hex(&hasher.finalize())
 }
 
-pub fn v6_challenge_login<S: ApiStream + ?Sized>(
-    stream: &mut S,
-    user: &str,
-    password: &str,
-) -> RosWireResult<()> {
-    write_sentence(stream, &["/login".to_owned()])?;
-
-    let challenge = loop {
+fn read_login_outcome<S: ApiStream + ?Sized>(stream: &mut S) -> RosWireResult<LoginOutcome> {
+    loop {
         let words = read_sentence(stream)?;
         let sentence = parse_api_sentence(&words)?;
         match sentence.kind {
             SentenceKind::Done => {
-                let Some(ret) = sentence.attributes.get("ret") else {
-                    return Err(Box::new(RosWireError::ros_api_failure(
-                        "RouterOS v6 login challenge did not include ret",
-                    )));
+                return match sentence.attributes.get("ret") {
+                    Some(ret) => Ok(LoginOutcome::Challenge(decode_hex(ret)?)),
+                    None => Ok(LoginOutcome::Authenticated),
                 };
-                break decode_hex(ret)?;
             }
             SentenceKind::Trap | SentenceKind::Fatal => {
                 return Err(Box::new(RosWireError::auth_failed(
@@ -55,24 +76,7 @@ pub fn v6_challenge_login<S: ApiStream + ?Sized>(
             }
             SentenceKind::Re | SentenceKind::Empty | SentenceKind::Other(_) => continue,
         }
-    };
-
-    let response = v6_challenge_response(password, &challenge);
-    let words = vec![
-        "/login".to_owned(),
-        format!("=name={user}"),
-        format!("=response=00{response}"),
-    ];
-    write_sentence(stream, &words)?;
-    read_login_completion(stream)
-}
-
-pub fn v6_challenge_response(password: &str, challenge: &[u8]) -> String {
-    let mut hasher = Md5::new();
-    hasher.update([0]);
-    hasher.update(password.as_bytes());
-    hasher.update(challenge);
-    encode_hex(&hasher.finalize())
+    }
 }
 
 fn read_login_completion<S: ApiStream + ?Sized>(stream: &mut S) -> RosWireResult<()> {
@@ -134,7 +138,7 @@ fn encode_hex(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{login, modern_login, v6_challenge_login, v6_challenge_response};
+    use super::{login, v6_challenge_response};
     use crate::error::ErrorCode;
     use crate::protocol::classic::sentence::{read_sentence, write_sentence};
     use std::io::{Cursor, Read, Result, Write};
@@ -188,7 +192,7 @@ mod tests {
         let mut stream = FakeApiStream::with_sentences(&[vec!["!done".to_owned()]]);
         let credential = test_credential();
 
-        modern_login(&mut stream, "admin", &credential).expect("login should succeed");
+        login(&mut stream, "admin", &credential).expect("login should succeed");
 
         assert_eq!(
             stream.written_sentences(),
@@ -201,16 +205,6 @@ mod tests {
     }
 
     #[test]
-    fn login_alias_uses_modern_flow() {
-        let mut stream = FakeApiStream::with_sentences(&[vec!["!done".to_owned()]]);
-        let credential = test_credential();
-
-        login(&mut stream, "admin", &credential).expect("login should succeed");
-
-        assert_eq!(stream.written_sentences()[0][0], "/login");
-    }
-
-    #[test]
     fn login_trap_maps_to_auth_failed() {
         let mut stream = FakeApiStream::with_sentences(&[vec![
             "!trap".to_owned(),
@@ -220,14 +214,14 @@ mod tests {
         invalid_credential.push('x');
 
         let error =
-            modern_login(&mut stream, "admin", &invalid_credential).expect_err("login should fail");
+            login(&mut stream, "admin", &invalid_credential).expect_err("login should fail");
 
         assert_eq!(error.error_code, ErrorCode::AuthFailed);
         assert_eq!(error.message, "invalid user name or password");
     }
 
     #[test]
-    fn v6_challenge_login_writes_expected_response() {
+    fn legacy_login_completes_challenge_when_done_includes_ret() {
         let challenge = "01020304";
         let credential = test_credential();
         let expected = v6_challenge_response(&credential, &[1, 2, 3, 4]);
@@ -236,12 +230,16 @@ mod tests {
             vec!["!done".to_owned()],
         ]);
 
-        v6_challenge_login(&mut stream, "admin", &credential).expect("v6 login should succeed");
+        login(&mut stream, "admin", &credential).expect("legacy login should succeed");
 
         assert_eq!(
             stream.written_sentences(),
             vec![
-                vec!["/login".to_owned()],
+                vec![
+                    "/login".to_owned(),
+                    "=name=admin".to_owned(),
+                    format!("=password={credential}"),
+                ],
                 vec![
                     "/login".to_owned(),
                     "=name=admin".to_owned(),
@@ -249,6 +247,22 @@ mod tests {
                 ],
             ],
         );
+    }
+
+    #[test]
+    fn legacy_login_challenge_failure_maps_to_auth_failed() {
+        let credential = test_credential();
+        let mut stream = FakeApiStream::with_sentences(&[
+            vec!["!done".to_owned(), "=ret=01020304".to_owned()],
+            vec![
+                "!trap".to_owned(),
+                "=message=invalid user name or password".to_owned(),
+            ],
+        ]);
+
+        let error = login(&mut stream, "admin", &credential).expect_err("login should fail");
+
+        assert_eq!(error.error_code, ErrorCode::AuthFailed);
     }
 
     fn test_credential() -> String {
