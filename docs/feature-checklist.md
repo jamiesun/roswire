@@ -124,7 +124,7 @@
 - [x] TCP API transport
 - [x] TLS API-SSL transport
 - [x] modern login
-- [x] v6 challenge-response login
+- [x] v6 challenge-response login（与 modern 登录统一：首发凭据，设备回 `=ret=` 时自动完成 MD5 challenge）
 - [x] `/system/resource/print` 版本探测
 - [x] REST client
 - [x] REST GET
