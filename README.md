@@ -240,7 +240,7 @@ Process-level environment variables and secret-backend variables:
 | --- | --- |
 | `ROSWIRE_HOME` | Override the default `~/.roswire` directory, mainly for tests or portable environments. |
 | `ROSWIRE_DEBUG` | Enable redacted debug diagnostics. |
-| `ROSWIRE_MASTER_KEY` | Default master key for encrypted secrets; a secret `key_id` can point to another variable. |
+| `ROSWIRE_MASTER_KEY` | Default master key for encrypted secrets; a secret `key_id` can point to another variable. Encrypted secrets use Argon2id with a random per-secret salt, but you should still use a high-entropy master key. |
 | Custom variables referenced by profile secrets with `type=env` | For example `ROSWIRE_STUDIO_PASSWORD`; read only through the secret backend and never used for device field precedence. |
 
 Passwords and SSH key passphrases use profile secrets: `password`, `ssh_password`, and `ssh_key_passphrase`.

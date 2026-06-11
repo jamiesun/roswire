@@ -2,6 +2,7 @@ use crate::args::Cli;
 use crate::error::{ErrorCode, ErrorContext, RosWireError, RosWireResult};
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
+use argon2::Argon2;
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use directories::BaseDirs;
 use rand::rngs::OsRng;
@@ -33,6 +34,8 @@ fn default_logging_level() -> String {
 }
 
 const DEFAULT_MASTER_KEY_ENV: &str = "ROSWIRE_MASTER_KEY";
+const SECRET_SALT_LEN: usize = 16;
+const SECRET_NONCE_LEN: usize = 12;
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct ConfigFile {
@@ -471,13 +474,11 @@ fn encrypted_master_key(
 }
 
 fn encrypt_secret_value(value: &str, master_key: &str) -> RosWireResult<String> {
-    let key = derive_encryption_key(master_key);
-    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|error| {
-        Box::new(RosWireError::internal(format!(
-            "failed to initialize secret cipher: {error}",
-        )))
-    })?;
-    let mut nonce = [0_u8; 12];
+    let mut salt = [0_u8; SECRET_SALT_LEN];
+    OsRng.fill_bytes(&mut salt);
+    let key = derive_encryption_key_v2(master_key, &salt)?;
+    let cipher = build_secret_cipher(&key)?;
+    let mut nonce = [0_u8; SECRET_NONCE_LEN];
     OsRng.fill_bytes(&mut nonce);
     let ciphertext = cipher
         .encrypt(Nonce::from_slice(&nonce), value.as_bytes())
@@ -488,7 +489,8 @@ fn encrypt_secret_value(value: &str, master_key: &str) -> RosWireResult<String> 
         })?;
 
     Ok(format!(
-        "v1:{}:{}",
+        "v2:{}:{}:{}",
+        BASE64_STANDARD.encode(salt),
         BASE64_STANDARD.encode(nonce),
         BASE64_STANDARD.encode(ciphertext)
     ))
@@ -496,34 +498,37 @@ fn encrypt_secret_value(value: &str, master_key: &str) -> RosWireResult<String> 
 
 fn decrypt_secret_value(value: &str, master_key: &str) -> RosWireResult<String> {
     let parts = value.split(':').collect::<Vec<_>>();
-    if parts.len() != 3 || parts[0] != "v1" {
-        return Err(Box::new(RosWireError::secret_decrypt_failed(
-            "encrypted secret payload has an unsupported format",
-        )));
-    }
+    let (key, nonce, ciphertext) = match parts.as_slice() {
+        ["v2", salt, nonce, ciphertext] => {
+            let salt = decode_secret_field(salt, "salt")?;
+            let nonce = decode_secret_field(nonce, "nonce")?;
+            let ciphertext = decode_secret_field(ciphertext, "ciphertext")?;
+            (
+                derive_encryption_key_v2(master_key, &salt)?,
+                nonce,
+                ciphertext,
+            )
+        }
+        // Legacy format kept for backward compatibility: single SHA-256, no salt.
+        ["v1", nonce, ciphertext] => {
+            let nonce = decode_secret_field(nonce, "nonce")?;
+            let ciphertext = decode_secret_field(ciphertext, "ciphertext")?;
+            (derive_encryption_key_v1(master_key), nonce, ciphertext)
+        }
+        _ => {
+            return Err(Box::new(RosWireError::secret_decrypt_failed(
+                "encrypted secret payload has an unsupported format",
+            )));
+        }
+    };
 
-    let nonce = BASE64_STANDARD.decode(parts[1]).map_err(|_| {
-        Box::new(RosWireError::secret_decrypt_failed(
-            "encrypted secret nonce is invalid",
-        ))
-    })?;
-    let ciphertext = BASE64_STANDARD.decode(parts[2]).map_err(|_| {
-        Box::new(RosWireError::secret_decrypt_failed(
-            "encrypted secret ciphertext is invalid",
-        ))
-    })?;
-    if nonce.len() != 12 {
+    if nonce.len() != SECRET_NONCE_LEN {
         return Err(Box::new(RosWireError::secret_decrypt_failed(
             "encrypted secret nonce has invalid length",
         )));
     }
 
-    let key = derive_encryption_key(master_key);
-    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|error| {
-        Box::new(RosWireError::internal(format!(
-            "failed to initialize secret cipher: {error}",
-        )))
-    })?;
+    let cipher = build_secret_cipher(&key)?;
     let plaintext = cipher
         .decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref())
         .map_err(|_| RosWireError::secret_decrypt_failed("failed to decrypt secret"))?;
@@ -535,8 +540,40 @@ fn decrypt_secret_value(value: &str, master_key: &str) -> RosWireResult<String> 
     })
 }
 
-fn derive_encryption_key(master_key: &str) -> [u8; 32] {
+fn decode_secret_field(value: &str, field: &str) -> RosWireResult<Vec<u8>> {
+    BASE64_STANDARD.decode(value).map_err(|_| {
+        Box::new(RosWireError::secret_decrypt_failed(format!(
+            "encrypted secret {field} is invalid",
+        )))
+    })
+}
+
+fn build_secret_cipher(key: &[u8; 32]) -> RosWireResult<Aes256Gcm> {
+    Aes256Gcm::new_from_slice(key).map_err(|error| {
+        Box::new(RosWireError::internal(format!(
+            "failed to initialize secret cipher: {error}",
+        )))
+    })
+}
+
+/// Legacy (v1) key derivation: a single SHA-256 of the master key with no salt.
+/// Retained only to decrypt pre-existing `v1:` secrets; never used for new writes.
+fn derive_encryption_key_v1(master_key: &str) -> [u8; 32] {
     Sha256::digest(master_key.as_bytes()).into()
+}
+
+/// Current (v2) key derivation: Argon2id over the master key with a random
+/// per-secret salt, providing a salted, memory-hard KDF.
+fn derive_encryption_key_v2(master_key: &str, salt: &[u8]) -> RosWireResult<[u8; 32]> {
+    let mut key = [0_u8; 32];
+    Argon2::default()
+        .hash_password_into(master_key.as_bytes(), salt, &mut key)
+        .map_err(|error| {
+            Box::new(RosWireError::internal(format!(
+                "failed to derive secret encryption key: {error}",
+            )))
+        })?;
+    Ok(key)
 }
 
 pub fn inspect_config(
@@ -1674,6 +1711,52 @@ retention_days = 7
             .expect_err("wrong master key should fail");
 
         assert!(has_error_code(&error, ErrorCode::SecretDecryptFailed));
+    }
+
+    #[test]
+    fn encrypted_secret_uses_v2_salted_format() {
+        let encrypted = encrypt_secret_value(&generated_secret(), &generated_master_key())
+            .expect("secret should encrypt");
+
+        assert!(encrypted.starts_with("v2:"));
+        assert_eq!(encrypted.split(':').count(), 4);
+    }
+
+    #[test]
+    fn encrypted_secret_uses_random_salt_per_write() {
+        let secret = generated_secret();
+        let master_key = generated_master_key();
+        let first = encrypt_secret_value(&secret, &master_key).expect("first encrypt");
+        let second = encrypt_secret_value(&secret, &master_key).expect("second encrypt");
+
+        assert_ne!(first, second, "salt/nonce should randomize ciphertext");
+    }
+
+    #[test]
+    fn legacy_v1_secret_still_decrypts() {
+        let secret = generated_secret();
+        let master_key = generated_master_key();
+        let v1 = encrypt_secret_value_v1_for_test(&secret, &master_key);
+
+        assert!(v1.starts_with("v1:"));
+        let decrypted =
+            decrypt_secret_value(&v1, &master_key).expect("legacy v1 secret should still decrypt");
+        assert_eq!(decrypted, secret);
+    }
+
+    fn encrypt_secret_value_v1_for_test(value: &str, master_key: &str) -> String {
+        let key: [u8; 32] = Sha256::digest(master_key.as_bytes()).into();
+        let cipher = Aes256Gcm::new_from_slice(&key).expect("cipher should init");
+        let mut nonce = [0_u8; SECRET_NONCE_LEN];
+        OsRng.fill_bytes(&mut nonce);
+        let ciphertext = cipher
+            .encrypt(Nonce::from_slice(&nonce), value.as_bytes())
+            .expect("v1 encrypt should succeed");
+        format!(
+            "v1:{}:{}",
+            BASE64_STANDARD.encode(nonce),
+            BASE64_STANDARD.encode(ciphertext)
+        )
     }
 
     #[test]
